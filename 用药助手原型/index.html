@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#254c3c"><title>安心药本 · 每日用药</title><link rel="stylesheet" href="style.css"><script defer src="app.js"></script></head>
+<body>
+<header><div class="wrap mast"><div class="brand"><span class="logo" aria-hidden="true">✚</span>安心药本</div><time id="today"></time></div></header>
+<main class="wrap"><div class="heading"><h1>今天的用药</h1><button class="listen" id="read"><span aria-hidden="true">◖))</span> 听今日安排</button></div>
+<div class="layout"><div class="left"><section class="hero"><div class="hero-copy"><span id="nextLabel">今日安排</span><h2 id="nextTitle">还没有登记用药</h2><p id="nextDetail" hidden></p><button id="heroAction" class="cream">登记第一种药</button></div><div class="still" aria-hidden="true"><i class="sun"></i><i class="ridge"></i><div class="clock"><i></i><b></b></div><div class="pillcase"><i></i><i></i><i></i></div></div></section>
+<section><h2>登记用药</h2><div class="actions"><button id="take"><span class="ico" data-icon="camera"></span>拍药盒</button><button id="upload"><span class="ico peach" data-icon="photo"></span>从相册选</button><button id="chat"><span class="ico blue" data-icon="chat"></span>聊天登记</button></div></section>
+<section id="draftSection" hidden><h2>还要核对的药</h2><div id="draftRow"></div></section>
+<section id="daily" hidden><h2>今天的清单</h2><div id="rows"></div></section></div>
+<aside><section class="paper-panel"><div class="ticket-art" aria-hidden="true"><div class="mini-sheet"><i></i><b></b><b></b><b></b></div></div><h2>我的用药卡</h2><div class="panel-actions"><button id="card" class="outline">看示例卡</button></div></section>
+<section class="rem-panel"><h2><span data-icon="bell"></span>每日提醒</h2><div id="remState">还没设置提醒</div><button class="outline" id="reminders">设置提醒</button></section></aside></div>
+<input type="file" accept="image/*" capture="environment" id="cameraFile" hidden><input type="file" accept="image/*" id="albumFile" hidden>
+</main><dialog id="dlg" aria-labelledby="dlgTitle"><div class="dialoghead"><h2 id="dlgTitle"></h2><button id="close" aria-label="关闭">关闭</button></div><div id="content"></div></dialog><div id="notice" role="status" hidden></div>
+</body></html>

@@ -1,0 +1,10 @@
+{
+  "person": "示例长辈",
+  "date": "2026-11-21",
+  "daily": true,
+  "demo": true,
+  "medications": [
+    {"name": "示例药甲（虚构）", "dose": "1片", "time": "08:00", "meal": "示例：早餐后", "confirmed": true},
+    {"name": "示例药乙（虚构）", "dose": "1粒", "time": "18:00", "meal": "示例：随晚餐", "confirmed": true}
+  ]
+}

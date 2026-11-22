@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>药品知识库</title><link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script></head>
+<body><header><div class="shell top"><span class="mark" aria-hidden="true">✚</span><strong>药品知识库</strong>
+<nav aria-label="知识库导航"><button id="navCatalog" aria-current="page">产品目录</button><button id="navRules">相互作用规则</button></nav></div></header>
+<main class="shell"><p id="error" role="alert" hidden></p><div class="layout"><section>
+<div id="catalog"><div class="titleline"><h1>产品目录</h1><span id="totalStat"></span></div>
+<form id="search"><input id="q" type="search" aria-label="药名、成分、企业或批准文号" placeholder="搜索药名、成分、企业或批准文号"><button class="primary">搜索</button></form>
+<div class="filter"><label><input id="mapped" type="checkbox"> 仅看已映射成分</label><span id="resultCount"></span></div>
+<div id="list" class="list"></div><div class="pagination"><button id="prev">上一页</button><span id="page"></span><button id="next">下一页</button></div></div>
+<div id="rules" hidden><h1>相互作用规则</h1><div id="ruleList"></div></div>
+</section><aside><div class="aside-title"><h2>同时用药清单</h2><span id="selectedCount" class="count">0</span></div>
+<div id="selected"></div><button id="check" class="primary wide" disabled>核查用药</button><div id="report" aria-live="polite"></div></aside></div></main>
+<dialog id="detail"><div class="dialogbar"><h2>产品档案</h2><button id="close">关闭</button></div><div id="detailBody"></div></dialog>
+</body></html>

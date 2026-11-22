@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN" data-type="software" data-motion>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#e2edf4">
+  <meta name="description" content="安伴，把每日用药整理进一个安心的小药盒。拍照核对，生成大字用药卡，听语音叮嘱。">
+  <title>安伴 · 一周安心药盒</title>
+  <link rel="stylesheet" href="app.css?v=organizer-20261121">
+  <link rel="stylesheet" href="taste-motion/motion.css">
+  <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+  <script type="module" src="taste-motion/motion.js"></script>
+  <script defer src="catalog.js"></script>
+  <script defer src="api-config.js"></script>
+  <script defer src="backend-client.js"></script>
+  <script src="schedule.js"></script>
+  <script defer src="pdf-ui.js?v=pdf-20261121"></script>
+  <script defer src="app.js?v=pdf-20261121"></script>
+  <script type="module" src="scene-boot.js?v=organizer-20261121"></script>
+</head>
+<body>
+  <a class="skip-link" href="#nav">进入功能导航</a>
+  <main class="world" id="world" aria-label="一周安心药盒">
+    <div id="scene" aria-label="可拖动旋转的七天分格药盒"></div>
+    <div id="sceneFallback" class="scene-fallback" hidden aria-label="七天分格药盒"></div>
+    <div id="sceneLoading" role="status"><span></span>正在打开药盒</div>
+    <header class="world-header">
+      <button class="brand home-button" id="homeButton" aria-label="回到药盒"><span class="brandmark" aria-hidden="true"></span><strong>安伴</strong></button>
+      <div class="scene-controls"><button id="resetView" aria-label="重置药盒视角"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 10a8 8 0 1 1 1 8M4 4v6h6"/></svg></button><button id="lidToggle" aria-pressed="true">合上盒盖</button></div>
+    </header>
+    <div class="week-picker" id="weekPicker" role="group" aria-label="今天起七天的用药日期"></div>
+    <div class="scene-footer" id="sceneFooter">
+      <div class="scene-heading"><h1>把每一天，<br><span>照顾好。</span></h1></div>
+      <div class="scene-action"><div id="selectionLabel" class="selection-label" aria-live="polite">我的一周药盒</div><button class="primary hero-action" data-a="scene-card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8h4l2-3h6l2 3h4v12H3z"/><circle cx="12" cy="13" r="3.4"/></svg>拍药盒做卡</button></div>
+    </div>
+  </main>
+  <div class="workspace-shade" id="workspaceShade" hidden></div>
+  <section class="workspace" id="workspace" role="region" aria-labelledby="pageTitle" inert aria-hidden="true">
+    <header class="workspace-header"><div><span class="workspace-mark" aria-hidden="true"></span><h2 id="pageTitle">健康对话</h2></div><button id="closeWorkspace" aria-label="收起，回到 3D 药盒">回到药盒</button></header>
+    <div class="workspace-meta"><time id="date"></time></div>
+    <div class="page-scroll"><div class="page-content"><div id="view"></div></div></div>
+    <div id="composeDock"></div>
+  </section>
+  <nav id="nav" aria-label="主导航"></nav>
+  <dialog id="modal"><div id="modalContent"></div><button class="plain" id="closeModal">关闭</button></dialog>
+  <div role="status" id="toast" hidden></div>
+  <input id="camera" type="file" accept="image/*" capture="environment" hidden>
+  <input id="reportAlbum" type="file" accept="image/*,application/pdf,.pdf" hidden>
+  <input id="album" type="file" accept="image/*" multiple hidden>
+  <input id="medicinePdf" type="file" accept="application/pdf,.pdf" hidden>
+</body>
+</html>
