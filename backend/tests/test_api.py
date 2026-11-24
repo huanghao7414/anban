@@ -32,6 +32,7 @@ class APITests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.provider = FakeProvider()
+        self.reminder_synth = self.enterContext(patch("backend.main.reminder_synth", return_value=b"reminder-wav"))
         self.app = create_app(self.tmp.name, self.provider, allowed_hosts={"testserver"})
         self.c = TestClient(self.app)
         self.addCleanup(self.c.close)
@@ -60,6 +61,40 @@ class APITests(unittest.TestCase):
         self.assertFalse(d['meds'][0]['ok'])
         return d
 
+    def test_lifestyle_summary_is_saved_per_account(self):
+        path = "/reports/lifestyle"
+        self.assertIsNone(self.req("GET", path)["summary"])
+        indicators = [{"name": "测试指标", "status": "review"}]
+        summary = self.req("PUT", path, {"indicators": indicators})["summary"]
+        self.assertEqual(summary["indicators"], indicators)
+        self.assertEqual(self.req("GET", path)["summary"], summary)
+        historical = [{"name": "另一项指标", "status": "within", "value": "4", "reference": "3-5"}]
+        self.req("PUT", path, {"indicators": historical})
+        self.assertEqual([row["indicators"] for row in self.req("GET", path + "/history")["items"]],
+                         [historical, indicators])
+        with TestClient(self.app) as other:
+            self.bootstrap(other)
+            self.assertIsNone(self.req("GET", path, client=other)["summary"])
+            self.assertEqual(self.req("GET", path + "/history", client=other)["items"], [])
+
+    def test_medication_log_records_only_user_confirmed_doses_and_can_undo(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        card, _ = self.card()
+        day = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+        path = f'/medication-log/{card["id"]}/0'
+        self.assertEqual(self.req("GET", "/medication-log")["items"], [])
+        for _ in range(2):
+            self.req("PUT", path, {"taken": True, "day": day})
+        items = self.req("GET", "/medication-log?today=true")["items"]
+        self.assertEqual([(item["name"], item["day"]) for item in items], [(card["meds"][0]["name"], day)])
+        with TestClient(self.app) as other:
+            self.bootstrap(other)
+            self.assertEqual(self.req("GET", "/medication-log", client=other)["items"], [])
+        self.req("PUT", path, {"taken": False, "day": day})
+        self.assertEqual(self.req("GET", "/medication-log")["items"], [])
+
     def confirm(self, d):
         meds = [{k: m.get(k, '') for k in ['id', 'name', 'dose', 'time', 'meal', 'ok']} for m in d['meds']]
         for i, m in enumerate(meds):
@@ -82,16 +117,90 @@ class APITests(unittest.TestCase):
         png = self.req('GET', '/cards/' + card['id'] + '/image.png')
         self.assertEqual(png.content[:8], b'\x89PNG\r\n\x1a\n')
         self.assertEqual(Image.open(io.BytesIO(png.content)).width, 960)
-        with patch('backend.main.local_audio', return_value=None):
+        with patch('backend.main.qwen_audio', side_effect=OSError), patch('backend.main.local_audio', return_value=None):
             voice = self.req('POST', '/cards/' + card['id'] + '/audio', {})
             self.assertEqual(voice['mode'], 'browser');self.assertEqual(voice['text'], card['narration'])
-        with patch('backend.main.local_audio', return_value=b'test-audio'):
+        with patch('backend.main.qwen_audio', side_effect=OSError), patch('backend.main.local_audio', return_value=b'test-audio'):
             self.req('POST', '/cards/' + card['id'] + '/audio', {})
             self.assertEqual(self.req('GET', '/cards/' + card['id'] + '/audio').content, b'test-audio')
         reopened = create_app(self.tmp.name, self.provider, allowed_hosts={'testserver'})
         with TestClient(reopened) as c:
             c.cookies.update(self.c.cookies)
             self.assertEqual(c.get('/api/v1/cards').json()['items'][0]['id'], card['id'])
+
+    def test_multiple_doses_survive_confirmation_card_and_reminders(self):
+        draft = self.confirm(self.create_real())
+        meds = [{key: row[key] for key in ("id", "name", "dose", "time", "meal", "ok")}
+                for row in draft["meds"]]
+        meds[0]["extra_doses"] = [{"time": "13:00", "dose": "2片", "meal": "午饭后"}]
+        meds[0]["food_notes"] = "已核对的食物注意示例"
+        draft = self.req("PUT", "/drafts/" + draft["id"], {
+            "revision": draft["revision"], "phase": "summary", "meds": meds,
+        })
+        request = {"draft_id": draft["id"], "revision": draft["revision"], "start_date": "2026-11-24"}
+        self.req("POST", "/cards", {**request, "end_date": "2026-11-23"}, status=422)
+        card = self.req("POST", "/cards", {**request, "end_date": "2026-11-28"})
+        saved = self.req("GET", "/cards")["items"][0]
+        self.assertEqual((saved["start_date"], saved["end_date"]), ("2026-11-24", "2026-11-28"))
+        self.assertEqual(len(card["source"]["confirmations"]), 2)
+        self.assertEqual([(med["time"], med["dose"]) for med in card["meds"]],
+                         [("08:00", "1片"), ("13:00", "2片"), ("18:00", "1片")])
+        self.assertEqual(card["meds"][1]["meal"], "午饭后")
+        self.assertEqual(card["meds"][1]["food_notes"], meds[0]["food_notes"])
+        reminders = self.req("POST", "/reminders", {"card_id": card["id"], "times": ["08:00", "13:00", "18:00"]})
+        self.assertEqual([row["at"] for row in reminders["items"]], ["08:00", "13:00", "18:00"])
+
+    def test_unknown_report_indicator_uses_catalog_source_only(self):
+        self.provider.configured = True
+        index = (
+            '<a href="https://untrusted.example/lab-tests/bad/">Fake search hit</a>'
+            '<a href="https://medlineplus.gov/lab-tests/tsh-test/">TSH Test</a>'
+        )
+        body = "<article><section><p>TSH means thyroid-stimulating hormone.</p></section></article>"
+        from backend.report_lookup import medical_tests
+        medical_tests.cache_clear()
+        self.addCleanup(medical_tests.cache_clear)
+        with patch("backend.report_lookup.get_page", side_effect=[index, body]) as fetch_page, patch.object(
+            self.provider, "complete", side_effect=[
+                '{"id":1}', '{"meaning":"这项检查测血液里的促甲状腺激素。"}',
+            ],
+        ):
+            result = self.req("POST", "/reports/indicator", {"name": "TSH"})
+        self.assertEqual(result["entry"]["source"], "https://medlineplus.gov/lab-tests/tsh-test/")
+        self.assertEqual(fetch_page.call_count, 2)
+        with patch.object(self.provider, "complete", return_value='{"id":0}'):
+            self.assertIsNone(self.req("POST", "/reports/indicator", {"name": "未匹配项目"})["entry"])
+
+    def test_report_voice_prefers_qwen_and_falls_back(self):
+        payload = {"text": "这是体检报告的语音摘要。"}
+        with patch("backend.main.qwen_audio", return_value=b"online") as qwen, patch("backend.main.local_audio") as local:
+            reply = self.req("POST", "/reports/voice", payload)
+        self.assertEqual(reply.content, b"online")
+        qwen.assert_called_once_with(payload["text"])
+        local.assert_not_called()
+        with patch("backend.main.qwen_audio", side_effect=OSError), patch("backend.main.local_audio", return_value=b"local"):
+            self.assertEqual(self.req("POST", "/reports/voice", payload).content, b"local")
+
+    def test_dose_without_unit_requires_review_and_cannot_play_cached_audio(self):
+        draft = self.confirm(self.create_real())
+        meds = [{key: row[key] for key in ("id", "name", "dose", "time", "meal", "ok")}
+                for row in draft["meds"]]
+        meds[0]["dose"] = "２"
+        reply = self.req("PUT", "/drafts/" + draft["id"], {
+            "revision": draft["revision"], "phase": "summary", "meds": meds,
+        }, status=422)
+        self.assertIn("单位", reply["error"]["message"])
+
+        card = self.req("POST", "/cards", {"draft_id": draft["id"], "revision": draft["revision"]})
+        card["meds"][0]["dose"] = "2"
+        with self.app.state.store.db() as db:
+            db.execute("UPDATE cards SET data=?,audio=?,audio_mime=? WHERE id=?",
+                       (json.dumps(card), b"old-audio", "audio/wav", card["id"]))
+        path = "/cards/" + card["id"] + "/audio"
+        response = self.req("POST", path, {})
+        self.assertIsNone(response["audio_url"])
+        self.assertIn("缺少单位", response["text"])
+        self.req("GET", path, status=422)
 
     def test_confirmation_gate_validation_and_revision(self):
         d = self.create_real()
@@ -105,6 +214,42 @@ class APITests(unittest.TestCase):
         changed = self.req('PUT', '/drafts/' + d['id'], {'revision': confirmed['revision'], 'phase': 'review', 'meds': m})
         self.assertIsNone(changed['meds'][0]['confirmed_at'])
         self.req('POST', '/cards', {'draft_id': d['id'], 'revision': changed['revision']}, 422)
+
+    def test_single_medicine_prefills_only_from_patient_label_and_requires_review(self):
+        draft = self.req("POST", "/drafts", {})
+        hint = {"name": "测试药", "label_directions": "每次2片", "dose": "2片", "uncertain": False}
+
+        def attach(fields, target=""):
+            uploaded = self.req("POST", "/uploads", {"data_url": self.photo})
+            upload_path = "/uploads/" + uploaded["id"]
+            with patch.object(self.provider, "analyze", return_value={"status": "needs_confirmation", "fields": fields}):
+                self.req("POST", upload_path + "/analyze", {})
+            path = "/drafts/" + draft["id"] + upload_path
+            return self.req("POST", path + ("?medication_id=" + target if target else ""), {})
+
+        draft = attach(hint)
+        med = draft["meds"][0]
+        self.assertEqual(med["dose"], "")
+        self.assertFalse(med["ok"])
+        personal = {**hint, "patient_directions": "每日08:00，饭后，每次1片",
+                    "dose": "1片", "time": "08:00", "meal": "饭后"}
+        draft = attach(personal, med["id"])
+        self.assertEqual(len(draft["meds"]), 1)
+        med = draft["meds"][0]
+        self.assertEqual((med["dose"], med["time"], med["meal"]), ("1片", "08:00", "饭后"))
+        self.assertEqual(len(med["extra_photos"]), 1)
+        self.assertFalse(med["ok"])
+
+        request = {"draft_id": draft["id"], "revision": draft["revision"]}
+        self.req("POST", "/cards", request, 422)
+        fields = {k: med[k] for k in ("id", "name", "dose", "time", "meal")}
+        verified = self.req("PUT", "/drafts/" + draft["id"], {
+            "revision": draft["revision"], "phase": "summary", "meds": [{**fields, "ok": True}],
+        })
+        request["revision"] = verified["revision"]
+        card = self.req("POST", "/cards", request)
+        self.assertEqual(len(card["meds"]), 1)
+        self.assertEqual(card["meds"][0]["dose"], "1片")
 
     def test_ownership_csrf_and_origin(self):
         card, d = self.card()
@@ -164,6 +309,33 @@ class APITests(unittest.TestCase):
         for row in reminders:self.req('PATCH','/reminders/'+row['id'],{'enabled':False})
         self.assertEqual(self.req('GET','/reminder-events')['items'],[])
         self.assertNotIn('BEGIN:VEVENT',self.req('GET','/reminders/calendar.ics').text)
+
+    def test_reminder_voice_is_prepared_and_each_fresh_event_is_presented_once(self):
+        card, _ = self.card()
+        path = "/reminders"
+        rows = self.req("POST", path, {"card_id": card["id"], "times": ["08:00", "18:00"]})["items"]
+        self.assertEqual(self.reminder_synth.call_count, 2)
+        self.assertIn(card["meds"][0]["name"], self.reminder_synth.call_args_list[0].args[0])
+        voice_path = f'{path}/{rows[0]["id"]}/voice.wav'
+        self.assertEqual(self.req("GET", voice_path).content, b"reminder-wav")
+        with TestClient(self.app) as other:
+            self.bootstrap(other)
+            self.req("GET", voice_path, status=404, client=other)
+        now = time.time()
+        with self.app.state.store.db() as db:
+            db.execute("UPDATE reminders SET next_at=? WHERE id=?", (now - 30, rows[0]["id"]))
+            db.execute("UPDATE reminders SET next_at=? WHERE id=?", (now - 600, rows[1]["id"]))
+            db.execute("INSERT INTO reminder_events VALUES(?,?,?,?,0)", ("stale", rows[1]["id"], rows[1]["user_id"], now - 600))
+        events = self.req("GET", "/reminder-events")["items"]
+        self.assertEqual(len(events), 1)
+        event = events[0]
+        self.assertEqual(event["medicine"], card["meds"][0]["name"])
+        self.assertTrue(event["voice_ready"])
+        present = f'/reminder-events/{event["id"]}/present'
+        self.assertEqual(self.req("POST", present, {}), {"present": True})
+        self.assertEqual(self.req("POST", present, {}), {"present": False})
+        self.assertEqual(self.req("GET", "/reminder-events")["items"], [])
+        self.assertEqual(self.reminder_synth.call_count, 2)
 
     def test_unreadable_report_is_cached_and_has_no_arrow_explanation(self):
         upload=self.req('POST','/uploads',{'data_url':self.photo,'kind':'report'})

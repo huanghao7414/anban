@@ -29,8 +29,15 @@ CREATE TABLE IF NOT EXISTS drafts(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFE
 CREATE TABLE IF NOT EXISTS cards(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),draft_id TEXT NOT NULL,revision INTEGER NOT NULL,data TEXT NOT NULL,audio BLOB,audio_mime TEXT,created REAL NOT NULL,UNIQUE(draft_id,revision));
 CREATE TABLE IF NOT EXISTS reminders(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),card_id TEXT NOT NULL REFERENCES cards(id),med_index INTEGER NOT NULL,at TEXT NOT NULL,timezone TEXT NOT NULL,enabled INTEGER NOT NULL,next_at REAL NOT NULL,created REAL NOT NULL,UNIQUE(user_id,card_id,med_index));
 CREATE TABLE IF NOT EXISTS reminder_events(id TEXT PRIMARY KEY,reminder_id TEXT NOT NULL REFERENCES reminders(id),user_id TEXT NOT NULL REFERENCES users(id),scheduled REAL NOT NULL,acknowledged INTEGER NOT NULL DEFAULT 0,UNIQUE(reminder_id,scheduled));
+CREATE TABLE IF NOT EXISTS reminder_presentations(event_id TEXT PRIMARY KEY REFERENCES reminder_events(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS reminder_audio_cache(card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,med_index INTEGER NOT NULL,audio BLOB NOT NULL,PRIMARY KEY(card_id,med_index));
 CREATE INDEX IF NOT EXISTS due_reminders ON reminders(enabled,next_at);
 CREATE TABLE IF NOT EXISTS reports(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),upload_id TEXT NOT NULL REFERENCES uploads(id),data TEXT NOT NULL,created REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS report_lifestyle(user_id TEXT PRIMARY KEY REFERENCES users(id),data TEXT NOT NULL,updated REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS report_lifestyle_history(id INTEGER PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),data TEXT NOT NULL,created REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS report_lifestyle_history_owner ON report_lifestyle_history(user_id,id DESC);
+CREATE TABLE IF NOT EXISTS medication_log(user_id TEXT NOT NULL REFERENCES users(id),card_id TEXT NOT NULL REFERENCES cards(id),med_index INTEGER NOT NULL,day TEXT NOT NULL,recorded_at REAL NOT NULL,PRIMARY KEY(user_id,card_id,med_index,day));
+CREATE INDEX IF NOT EXISTS medication_log_owner ON medication_log(user_id,recorded_at DESC);
 CREATE TABLE IF NOT EXISTS pdf_documents(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL,filename TEXT NOT NULL,content BLOB NOT NULL,page_count INTEGER NOT NULL,selected TEXT NOT NULL DEFAULT '[]',created REAL NOT NULL,updated REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS pdf_pages(document_id TEXT NOT NULL REFERENCES pdf_documents(id),page INTEGER NOT NULL,thumbnail BLOB NOT NULL,image BLOB,text TEXT NOT NULL DEFAULT '',upload_id TEXT UNIQUE REFERENCES uploads(id),error TEXT,PRIMARY KEY(document_id,page));
 CREATE INDEX IF NOT EXISTS pdf_owner ON pdf_documents(user_id,updated);

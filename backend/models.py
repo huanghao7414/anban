@@ -1,6 +1,7 @@
 """Public API contracts. Human-confirmed schedules are separate from OCR."""
-from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from datetime import date
+from typing import Literal, Self
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
@@ -59,12 +60,20 @@ class DraftCreate(Model):
     demo: bool = False
 
 
+class MedicationDose(Model):
+    dose: str = Field(max_length=40)
+    time: str = Field(max_length=5)
+    meal: str = Field(default="", max_length=80)
+
+
 class Medication(Model):
     id: str = Field(max_length=64)
     name: str = Field(default="", max_length=80)
     dose: str = Field(default="", max_length=40)
     time: str = Field(default="", max_length=5)
     meal: str = Field(default="", max_length=80)
+    extra_doses: list[MedicationDose] = Field(default_factory=list, max_length=2)
+    food_notes: str = Field(default="", max_length=120)
     ok: bool = Field(default=False, strict=True)
 
 
@@ -78,11 +87,19 @@ class DraftUpdate(Model):
 class CardCreate(Model):
     draft_id: str
     revision: int = Field(ge=0)
+    start_date: date | None = None
+    end_date: date | None = None
+
+    @model_validator(mode="after")
+    def validate_cycle(self) -> Self:
+        if self.end_date and (not self.start_date or self.end_date < self.start_date):
+            raise ValueError("结束日期不能早于开始日期")
+        return self
 
 
 class ReminderCreate(Model):
     card_id: str
-    times: list[str] = Field(min_length=1, max_length=5)
+    times: list[str] = Field(min_length=1, max_length=15)
     timezone: str = "Asia/Shanghai"
 
     @field_validator("times")
@@ -109,3 +126,28 @@ class ReminderUpdate(Model):
 
 class ReportRequest(Model):
     upload_id: str
+
+
+class ReportVoiceSummary(Model):
+    text: str = Field(min_length=1, max_length=250)
+
+
+class ReportIndicatorLookup(Model):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class LifestyleIndicator(Model):
+    name: str = Field(min_length=1, max_length=200)
+    status: Literal["review", "high", "low", "outside", "conflict", "within", "unmarked"]
+    value: str = Field(default="", max_length=200)
+    reference: str = Field(default="", max_length=200)
+    unit: str = Field(default="", max_length=200)
+
+
+class ReportLifestyle(Model):
+    indicators: list[LifestyleIndicator] = Field(min_length=1, max_length=200)
+
+
+class MedicationLogUpdate(Model):
+    taken: bool = Field(strict=True)
+    day: date

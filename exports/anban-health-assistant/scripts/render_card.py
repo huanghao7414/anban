@@ -5,9 +5,26 @@ import io
 import json
 from pathlib import Path
 import re
+import unicodedata
 
 
 LEGAL = "不替代执业医师诊断与处方调整"
+
+
+DOSE_UNIT_MESSAGE = "请填写每次用量及单位，例如 2 粒、1 片或 5 mL。"
+BARE_DOSE = re.compile(r"(?:每次|一次)?[\d零〇一二两三四五六七八九十百半./~～至到—–-]+")
+
+
+def dose_needs_unit(dose):
+    normalized = "".join(unicodedata.normalize("NFKC", dose).split())
+    return bool(BARE_DOSE.fullmatch(normalized))
+
+
+def dose_label(dose):
+    if dose_needs_unit(dose):
+        return f"每次用量：{dose}（单位待核对）"
+    spaced = re.sub(r"(?<=\d)(?=[片粒颗袋包丸滴支喷揿贴勺克毫微瓶枚锭a-zA-Z])", " ", dose)
+    return "每次用量：" + spaced
 
 
 def clean_text(value, label, limit=120, allow_empty=False):
@@ -29,19 +46,34 @@ def validate(data):
     if not isinstance(data.get("demo", False), bool):
         raise ValueError("demo 必须为布尔值")
     raw = data.get("medications")
-    if not isinstance(raw, list) or not 2 <= len(raw) <= 5:
-        raise ValueError("请提供 2 至 5 盒药的已核对记录")
+    if not isinstance(raw, list) or not 1 <= len(raw) <= 5:
+        raise ValueError("请提供 1 至 5 盒药的已核对记录")
     meds = []
     for row in raw:
         if not isinstance(row, dict) or row.get("confirmed") is not True:
             raise ValueError("每盒药都需要用户明确确认")
-        item = {k: clean_text(row.get(k, ""), k, allow_empty=k == "meal")
-                for k in ("name", "dose", "time", "meal")}
-        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", item["time"]):
-            raise ValueError("每日时间必须为有效的 HH:MM")
-        if re.search(r"不清楚|忘了|不知道|不确定|记不清|可能|好像|隔天|隔日|每周|按需", " ".join(item.values())):
-            raise ValueError("存在待核对内容或此模板不支持的服法")
-        meds.append(item)
+        name = clean_text(row.get("name"), "药名")
+        food = clean_text(row.get("food_notes", ""), "食物注意", allow_empty=True)
+        extra = row.get("extra_doses", [])
+        if not isinstance(extra, list) or len(extra) > 2:
+            raise ValueError("每盒最多支持三个每日时点")
+        times = set()
+        for dose in [row, *extra]:
+            if not isinstance(dose, dict):
+                raise ValueError("服用安排格式有误")
+            item = {k: clean_text(dose.get(k, ""), k, allow_empty=k == "meal")
+                    for k in ("dose", "time", "meal")}
+            item.update(name=name, food_notes=food)
+            if dose_needs_unit(item["dose"]):
+                raise ValueError(DOSE_UNIT_MESSAGE)
+            if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", item["time"]):
+                raise ValueError("每日时间必须为有效的 HH:MM")
+            if item["time"] in times:
+                raise ValueError("同一盒药的服用时间不能重复")
+            times.add(item["time"])
+            if re.search(r"不清楚|忘了|不知道|不确定|记不清|可能|好像|隔天|隔日|每周|按需", " ".join(item.values())):
+                raise ValueError("存在待核对内容或此模板不支持的服法")
+            meds.append(item)
     return {"person": person, "date": stamp, "demo": data.get("demo", False),
             "medications": sorted(meds, key=lambda m: m["time"])}
 
@@ -52,37 +84,96 @@ def narration(card):
     for m in card["medications"]:
         hour, minute = map(int, m["time"].split(":"))
         when = str(hour) + "点" + (str(minute) + "分" if minute else "整")
-        rows.append(when + "，" + m["name"] + "，每次" + m["dose"] + "。" + (m["meal"] + "。" if m["meal"] else ""))
+        rows.append(when + "，" + m["name"] + "，每次" + m["dose"] + "。" + (m["meal"] + "。" if m["meal"] else "") + ("食物注意：" + m["food_notes"] + "。" if m["food_notes"] else ""))
     return prefix + "".join(rows) + LEGAL + "。"
 
 
 def render(card, font_path):
-    from PIL import Image, ImageDraw, ImageFont
     title = "示例每日用药卡" if card["demo"] else (card["person"] or "我") + "的每日用药卡"
-    rows = [(title, 62), (card["date"], 40)]
-    for m in card["medications"]:
-        rows.extend([(m["time"], 62), (m["name"], 58), ("每次 " + m["dose"], 50)])
-        if m["meal"]:
-            rows.append((m["meal"], 46))
-    rows.append((LEGAL, 38))
-    probe = ImageDraw.Draw(Image.new("RGB", (960, 10)))
-    lines = []
-    for text, size in rows:
-        font = ImageFont.truetype(str(font_path), size)
-        line = ""
+    return render_medication_card(card["medications"], title, card["date"], LEGAL, font_path)
+
+
+def render_medication_card(meds, title, date, legal, font_path):
+    from PIL import Image, ImageDraw, ImageFont
+
+    width = 960
+    ink, muted = "#182E36", "#435963"
+    periods = (
+        ("早", "00:00", "11:00", "#FAE8CA", "#75471B"),
+        ("中", "11:00", "17:00", "#DFEDE2", "#255844"),
+        ("晚", "17:00", "24:00", "#E6E9F4", "#414C75"),
+    )
+    probe = ImageDraw.Draw(Image.new("RGB", (width, 1)))
+    fonts = {}
+
+    def wrap(text, size, available):
+        if size not in fonts:
+            fonts[size] = ImageFont.truetype(str(font_path), size)
+        font = fonts[size]
+        lines, line = [], ""
         for char in text:
-            if line and probe.textlength(line + char, font=font) > 840:
-                lines.append((line, font, size)); line = ""
+            if line and probe.textlength(line + char, font=font) > available:
+                lines.append(line)
+                line = ""
             line += char
-        lines.append((line, font, size))
-    image = Image.new("RGB", (960, 100 + sum(int(s * 1.65) for _, _, s in lines)), "#fffefa")
+        return [*lines, line]
+
+    operations = []
+
+    def box(coords, radius, color):
+        operations.append(("box", coords, radius, color))
+
+    def text(value, x, y, size, color, available, weight=False):
+        for line in wrap(value, size, available):
+            operations.append(("text", (x, y), (line, size, weight), color))
+            y += round(size * 1.23)
+        return y
+
+    y = text(title, 76, 66, 67, "#FFFFFF", 808, True)
+    y = text(date, 78, y + 13, 35, "#D5E8E5", 804) + 50
+    operations.insert(0, ("box", (42, 36, 918, y - 22), 34, "#143E43"))
+    for label, start, end, tint, accent in periods:
+        scheduled = sorted((med for med in meds if start <= med["time"] < end),
+                           key=lambda med: med["time"])
+        top = y
+        block = len(operations)
+        text(label, 71, y + 28, 56, accent, 68, True)
+        y += 24
+        if not scheduled:
+            y = text("未登记用药", 190, y + 12, 36, muted, 680) + 17
+        for index, med in enumerate(scheduled):
+            if index:
+                box((189, y + 3, 877, y + 5), 1, "#DDE4E4")
+                y += 24
+            text(med["time"], 190, y, 52, accent, 212, True)
+            right = text(med["name"], 410, y + 2, 52, ink, 462, True)
+            right = text(dose_label(med["dose"]), 410, right + 3, 40, ink, 462)
+            y = max(y + 66, right)
+            if med.get("meal"):
+                y = text(med["meal"], 190, y + 7, 38, ink, 686)
+            else:
+                y = text("用餐关系未登记", 190, y + 7, 35, muted, 686)
+            if med.get("food_notes"):
+                y = text("食物注意：" + med["food_notes"], 190, y + 6, 35, ink, 686)
+            y += 12
+        y += 16
+        operations[block:block] = [
+            ("box", (42, top, 918, y), 30, "#FFFFFF"),
+            ("box", (54, top + 12, 160, y - 12), 24, tint),
+        ]
+        y += 18
+    y = text(legal, 68, y + 8, 31, muted, 824) + 44
+    image = Image.new("RGB", (width, y), "#EEF2F0")
     draw = ImageDraw.Draw(image)
-    draw.rectangle((0, 0, 959, 15), fill="#315d72")
-    y = 48
-    for text, font, size in lines:
-        draw.text((56, y), text, font=font, fill="#243d4c")
-        y += int(size * 1.65)
-    output = io.BytesIO(); image.save(output, "PNG")
+    for kind, coords, payload, color in operations:
+        if kind == "box":
+            draw.rounded_rectangle(coords, radius=payload, fill=color)
+        else:
+            value, size, weight = payload
+            draw.text(coords, value, font=fonts[size], fill=color, anchor="lt",
+                      stroke_width=int(weight), stroke_fill=color)
+    output = io.BytesIO()
+    image.save(output, "PNG")
     return output.getvalue()
 
 

@@ -6,16 +6,18 @@
   <meta name="theme-color" content="#e2edf4">
   <meta name="description" content="安伴，把每日用药整理进一个安心的小药盒。拍照核对，生成大字用药卡，听语音叮嘱。">
   <title>安伴 · 一周安心药盒</title>
-  <link rel="stylesheet" href="app.css?v=organizer-20261121">
+  <link rel="stylesheet" href="app.css?v=home-actions-1">
   <link rel="stylesheet" href="taste-motion/motion.css">
   <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
   <script type="module" src="taste-motion/motion.js"></script>
   <script defer src="catalog.js"></script>
   <script defer src="api-config.js"></script>
-  <script defer src="backend-client.js"></script>
-  <script src="schedule.js"></script>
-  <script defer src="pdf-ui.js?v=pdf-20261121"></script>
-  <script defer src="app.js?v=pdf-20261121"></script>
+  <script defer src="backend-client.js?v=medicine-cycle-1"></script>
+  <script src="schedule.js?v=medicine-cycle-1"></script>
+  <script defer src="pdf-ui.js?v=pdf-select-1"></script>
+  <script defer src="report-knowledge.js?v=contest-1"></script>
+  <script defer src="report-ui.js?v=health-record-1"></script>
+  <script defer src="app.js?v=health-record-1"></script>
   <script type="module" src="scene-boot.js?v=organizer-20261121"></script>
 </head>
 <body>
@@ -31,7 +33,7 @@
     <div class="week-picker" id="weekPicker" role="group" aria-label="今天起七天的用药日期"></div>
     <div class="scene-footer" id="sceneFooter">
       <div class="scene-heading"><h1>把每一天，<br><span>照顾好。</span></h1></div>
-      <div class="scene-action"><div id="selectionLabel" class="selection-label" aria-live="polite">我的一周药盒</div><button class="primary hero-action" data-a="scene-card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8h4l2-3h6l2 3h4v12H3z"/><circle cx="12" cy="13" r="3.4"/></svg>拍药盒做卡</button></div>
+      <div class="scene-action"><div id="selectionLabel" class="selection-label" aria-live="polite">我的一周药盒</div><button class="primary hero-action" data-a="scene-card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8h4l2-3h6l2 3h4v12H3z"/><circle cx="12" cy="13" r="3.4"/></svg>拍药盒做卡</button><button class="lifestyle-home" data-a="show-lifestyle">生活注意事项</button></div>
     </div>
   </main>
   <div class="workspace-shade" id="workspaceShade" hidden></div>

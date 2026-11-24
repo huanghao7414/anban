@@ -33,7 +33,9 @@ def process(body):
             pages = []
             for index in range(count):
                 with closing(document[index]) as page:
-                    pages.append({"page": index + 1, "thumbnail": jpeg(page, 440, 72)})
+                    with closing(page.get_textpage()) as textpage:
+                        text = textpage.get_text_bounded()[:12000]
+                    pages.append({"page": index + 1, "thumbnail": jpeg(page, 440, 72), "text": text})
             return {"page_count": count, "pages": pages}
         number = body["page"]
         if type(number) is not int or not 1 <= number <= count:

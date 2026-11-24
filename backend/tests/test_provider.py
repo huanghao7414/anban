@@ -23,7 +23,8 @@ class ProviderTests(unittest.TestCase):
         with patch('backend.providers.httpx.Client',return_value=client):
             result=self.make_provider().analyze(b'jpeg-bytes','medicine')
         self.assertEqual(result['status'],'needs_confirmation')
-        self.assertNotIn('dose',result['fields']);self.assertNotIn('ok',result['fields'])
+        self.assertEqual([result['fields'][key] for key in ('patient_directions', 'dose', 'time', 'meal')], ['', '', '', ''])
+        self.assertNotIn('ok',result['fields'])
         self.assertEqual(captured['response_format'],{'type':'json_object'})
         self.assertEqual(captured['messages'][-1]['content'][1]['type'],'image_url')
         self.assertNotIn('test-only-key',json.dumps(captured))

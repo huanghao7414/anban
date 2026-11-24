@@ -131,11 +131,12 @@ class Providers:
             if not isinstance(value, dict):
                 raise ValueError()
             if kind == "medicine":
-                fields = {k: value.get(k, "") for k in ("name", "specification", "manufacturer", "label_directions")}
+                fields = {k: value.get(k, "") for k in ("name", "specification", "manufacturer", "label_directions",
+                                                                  "patient_directions", "dose", "time", "meal")}
                 if any(not isinstance(v, str) or len(v) > 1000 for v in fields.values()) or not isinstance(value.get("uncertain"), bool):
                     raise ValueError()
                 fields["uncertain"] = value["uncertain"]
-                if not any(fields[k].strip() for k in ("name", "specification", "manufacturer", "label_directions")):
+                if not any(fields[k].strip() for k in ("name", "specification", "manufacturer", "label_directions", "patient_directions")):
                     fields["uncertain"] = True
                     return {"status": "manual_required", "fields": fields, "reason_code": "image_unreadable",
                             "reason": "没有读到药品文字，请拍清药名、规格和厂家，或对照原图手动填写。"}

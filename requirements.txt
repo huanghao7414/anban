@@ -5,3 +5,4 @@ httpx==0.28.1
 Pillow==12.3.0
 pypdfium2==5.15.2
 python-dotenv>=1.0,<2
+tzdata>=2025.2; sys_platform == "win32"

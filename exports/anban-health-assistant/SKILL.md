@@ -2,7 +2,7 @@
 name: anban-health-assistant
 description: 面向中老年人，将用户提供的体检报告和药盒照片整理为待核对信息，逐盒核对已有医嘱，并生成大字每日用药卡与朗读稿。在用户需要看懂报告原文、整理日常用药或制作长辈用药卡时使用。
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   language: zh-CN
 ---
 

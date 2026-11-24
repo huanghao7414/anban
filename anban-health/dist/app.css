@@ -105,3 +105,72 @@ dialog::backdrop {background:#29445770;backdrop-filter:blur(4px);}
 .pdf-filename{overflow-wrap:anywhere;font-weight:600}.pdf-pages{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.pdf-page{display:grid;align-content:start;gap:8px;min-width:0;border:1px solid var(--line);border-radius:12px;padding:8px;background:#f0f5f8}.pdf-page:has(input:checked){border:2px solid var(--jade);padding:7px;background:#e1edf3}.pdf-page label{cursor:pointer}.pdf-page label img{width:100%;aspect-ratio:3/4;object-fit:contain;background:#fff;border-radius:6px}.pdf-page label>span{display:flex;align-items:center;gap:8px;min-height:48px}.pdf-page input[type=checkbox]{width:24px;height:24px;min-height:24px;padding:0;accent-color:var(--jade);flex:none}.pdf-page button{width:100%;padding-inline:4px}.pdf-status{font-size:1rem}.pdf-picker>button{width:100%}.report-indicator{display:grid;gap:4px;overflow-wrap:anywhere}.pdf-original{display:block;width:100%;height:auto;margin-block:16px}.pdf-original-link{display:inline-block;font-size:1rem;color:var(--jade);margin-block:12px;text-underline-offset:4px}
 @media(max-width:520px){#nav button{padding-inline:6px}}
 @media(max-width:670px) and (max-height:600px){.week-picker{top:82px}}
+
+#reportReview input[type=checkbox]{width:24px;height:24px;min-height:24px;padding:0;vertical-align:middle;accent-color:var(--jade)}
+
+.medication-sheet{background:#eef2f0;color:#182e36;border-radius:24px;padding:clamp(10px,2.6vw,20px);display:grid;gap:12px}
+.medication-sheet>header{background:#143e43;color:#fff;border-radius:17px;padding:clamp(16px,4vw,28px)}
+.medication-sheet>header h2{font-size:clamp(1.6rem,4.5vw,2.25rem);line-height:1.2;overflow-wrap:anywhere}
+.medication-sheet>header p{color:#d5e8e5;margin-top:8px;font-size:1rem}
+.medication-period{--tint:#fae8ca;--accent:#75471b;display:grid;grid-template-columns:auto minmax(0,1fr);gap:clamp(10px,3vw,18px);background:#fff;border-radius:16px;padding:10px;break-inside:avoid}
+.medication-period.period-1{--tint:#dfeDE2;--accent:#255844}
+.medication-period.period-2{--tint:#e6e9f4;--accent:#414c75}
+.medication-period>h3{font-size:clamp(1.25rem,4vw,1.8rem);line-height:1.2;background:var(--tint);color:var(--accent);border-radius:11px;padding:11px 9px;min-width:2.25em;text-align:center}
+.medication-entries{display:grid;align-content:center;padding:7px 8px 7px 0;min-height:50px}
+.medication-entry{min-width:0;overflow-wrap:anywhere;font-size:1rem}
+.medication-entry+.medication-entry{border-top:1px solid #dde4e4;margin-top:12px;padding-top:12px}
+.medication-main{display:grid;grid-template-columns:auto minmax(0,1fr);gap:clamp(8px,3vw,18px);align-items:baseline;margin-bottom:7px}
+.medication-main h4,.medication-time{font-size:clamp(1.18rem,3.8vw,1.55rem);line-height:1.25}
+.medication-time{color:var(--accent);font-variant-numeric:tabular-nums}
+.medication-entry p+p{margin-top:4px}
+.medication-legal{color:#435963;font-size:.94rem;padding:1px 6px 3px}
+@media print{.medication-sheet{background:white;padding:0}.medication-sheet>header{color:#182e36;background:white;border:1px solid #182e36}.medication-sheet>header p{color:#435963}.medication-period{border:1px solid #89969a}.medication-period>h3{border:1px solid currentColor}}
+
+.medication-entry .dose-needs-unit{color:#8a441e;font-weight:700}
+.medication-sheet .medication-period{display:block;padding:0;overflow:hidden}
+.medication-sheet .medication-period>h3{text-align:left;padding:10px 16px;border-radius:0}
+.medication-sheet .medication-entries{padding:14px 16px}
+.medication-sheet .medication-main{align-items:start}
+.medication-sheet .medication-main h4{margin:0 0 7px}
+.medication-sheet .medication-time{min-width:3em;font-size:clamp(1.4rem,5vw,2rem);font-weight:750}
+.medication-dose{color:#143e43;font-size:clamp(1.15rem,3.5vw,1.45rem);font-weight:750}
+.medication-meal{margin-top:5px;color:#435963}
+.report-card-sheet{display:grid;gap:12px}
+.report-card-header{padding:18px;border-radius:16px;background:#143e43;color:#fff}
+.report-card-header p{color:#d5e8e5;margin-top:4px}
+.report-card-entry{display:grid;gap:9px;padding:14px 16px;border:1px solid #d5e2dc;border-radius:14px;background:white;overflow-wrap:anywhere}
+.report-card-entry h3{font-size:1.35rem}
+.report-card-measure{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px 12px}
+.report-card-measure>div{display:grid;gap:2px;color:#435963}
+.report-card-measure strong{font-size:clamp(1.65rem,5vw,2.2rem);line-height:1.15;color:#143e43;font-variant-numeric:tabular-nums}
+.report-card-status{padding:4px 10px;border-radius:8px;background:#edf1f5;color:#344e60;font-weight:650}
+.report-card-status.within{background:#e2f1e8;color:#22563f}
+.report-card-status.attention{background:#faebd7;color:#784211}
+.report-card-reference{color:#435963;font-size:1rem}
+.report-card-explanation{display:grid;gap:4px;border-top:1px solid #d5e2dc;padding-top:9px}
+.report-card-explanation h4{font-size:1rem;margin:0;color:#435963}
+#reportLookupStatus:empty{display:none}
+.scene-action>.lifestyle-home{background:#f7fbfa;color:#143e43;border-color:#b5c9c3}
+.scene-action>:is(.hero-action,.lifestyle-home){box-sizing:border-box;inline-size:clamp(9.5rem,22vw,12rem);block-size:3.5rem;padding:0 10px;border-radius:16px;font-size:1.06rem;line-height:1.2}
+.lifestyle-indicators{display:flex;flex-wrap:wrap;gap:7px;margin:0;padding:0;list-style:none}
+.lifestyle-indicators li{background:#faebd7;color:#784211;border-radius:8px;padding:3px 9px;overflow-wrap:anywhere;max-width:100%}
+
+.report-indicator-option{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:start;gap:12px;border:1px solid var(--line);border-radius:12px;padding:11px 12px;cursor:pointer}
+.report-indicator-option:has(input:checked){background:#e6f1ec;border-color:var(--jade)}
+.report-indicator-option input[type=checkbox]{width:24px;height:24px;min-height:24px;margin:0;padding:0;accent-color:var(--jade)}
+.report-indicator-option span,.report-indicator-option strong{display:block;overflow-wrap:anywhere}
+.report-indicator-option strong{margin-bottom:3px}
+.pdf-progress{position:sticky;top:0;z-index:2;display:grid;gap:6px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#f0f5f8}
+.pdf-progress progress{width:100%;height:10px;accent-color:var(--jade)}
+.pdf-selection-actions{position:sticky;bottom:0;z-index:2;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#f0f5f8}
+.pdf-selection-actions p{flex-basis:100%}
+.dose-row{min-width:0;margin:0;padding:12px;border:1px solid var(--line);border-radius:12px}
+.dose-row legend{padding-inline:6px;font-weight:700}
+.dose-row .fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr))}
+
+.report-plain-meaning{font-size:1.18rem;font-weight:650;line-height:1.55;color:#175448;overflow-wrap:anywhere}
+
+.report-meaning-pending{color:var(--muted);font-weight:500}
+#reportLookupStatus:empty{display:none}
+
+.pdf-page[hidden]{display:none}.pdf-search input{width:100%}#reportPageSearchStatus:empty{display:none}.slot-med-name{overflow-wrap:anywhere;font-size:.95rem}

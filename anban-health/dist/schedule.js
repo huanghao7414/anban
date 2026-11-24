@@ -20,8 +20,9 @@
       const date=new Date(startDate+'T00:00:00Z');date.setUTCDate(date.getUTCDate()+i);
       const iso=date.toISOString().slice(0,10),weekday='周'+['日','一','二','三','四','五','六'][date.getUTCDay()];
       const shortDate=(date.getUTCMonth()+1)+'/'+date.getUTCDate();
+      const active=(!card?.start_date||iso>=card.start_date)&&(!card?.end_date||iso<=card.end_date);
       return {date:iso,weekday,shortDate,label:i===0?'今天':weekday,fullLabel:(date.getUTCMonth()+1)+'月'+date.getUTCDate()+'日 '+weekday,
-        slots:periods.map(p=>({...p,meds:meds.filter(m=>periodFor(m.time)===p.id)}))};
+        slots:periods.map(p=>({...p,meds:active?meds.filter(m=>periodFor(m.time)===p.id):[]}))};
     });
     return {startDate,endDate:days[6].date,cardId:card?.id||null,days};
   }

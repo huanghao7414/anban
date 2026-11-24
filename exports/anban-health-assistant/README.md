@@ -1,6 +1,6 @@
 # 安伴健康整理 Skill 分享包
 
-版本：1.0.0。面向已有 DSH / Agent 环境，复用药盒信息整理、逐盒核对、报告原文转译、大字每日用药卡和朗读稿工作流。
+版本：1.1.0。面向已有 DSH / Agent 环境，复用药盒信息整理、逐盒核对、报告原文转译、大字每日用药卡和朗读稿工作流。
 
 ## 交给对方什么
 
@@ -12,10 +12,12 @@ anban-health-assistant/
 ├── references/
 │   ├── medication-register.md
 │   ├── report-explain.md
+│   ├── report-indicators.json
 │   ├── reminder-card.md
 │   └── dsh-integration.md
 ├── scripts/render_card.py
 ├── examples/confirmed-demo.json
+├── examples/medication-card.png
 ├── requirements.txt
 └── README.md
 ```
@@ -37,7 +39,7 @@ anban-health-assistant/
 python3 scripts/render_card.py examples/confirmed-demo.json --out demo-output
 ```
 
-输出为大字 `medication-card.png` 和 `narration.txt`。示例中的药名是虚构测试数据，不是处方。用真实数据时必须依据用户核对结果填写；脚本只校验输入结构，无法证明确认确实来自用户。
+输出为早、中、晚分组的大字 `medication-card.png` 和 `narration.txt`。示例中的药名是虚构测试数据，不是处方。用真实数据时必须依据用户核对结果填写；脚本只校验输入结构，无法证明确认确实来自用户。
 
 `narration.txt` 是朗读稿；音频合成需要宿主 TTS。提醒需要宿主日历或定时服务，安装此包不会自动创建后台提醒。
 

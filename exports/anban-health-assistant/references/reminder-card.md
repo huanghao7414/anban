@@ -25,7 +25,7 @@
 python3 scripts/render_card.py confirmed.json --out output
 ```
 
-需要指定字体时使用 `--font /absolute/path/to/chinese-font.ttf`。脚本按原文生成 `medication-card.png` 和 `narration.txt`，保留精确时间、用量和吃饭关系；不将药物模型数量换算成用药剂量。示例数据必须带 `demo: true` 并在卡片上显示“示例”。脚本不会覆盖已有输出。
+需要指定字体时使用 `--font /absolute/path/to/chinese-font.ttf`。脚本按原文生成 `medication-card.png` 和 `narration.txt`，保留精确时间、用量和吃饭关系；不将药物模型数量换算成用药剂量。每盒可通过 `extra_doses` 提供最多两条额外的已核对安排，每条含 `time`、`dose`、`meal`。`food_notes` 可保留已核对的食物注意事项。示例数据必须带 `demo: true` 并在卡片上显示“示例”。脚本不会覆盖已有输出。
 
 朗读时逐项读出确认内容；不要为缩短时长删掉药名、用量或时段。宿主有 TTS 时可合成音频，并检查是否超过一分钟；如果完整内容太长，保留完整稿并告知时长，或在用户同意后分段。`narration.txt` 本身是文字文件，不是音频。
 

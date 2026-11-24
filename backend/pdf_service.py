@@ -27,7 +27,7 @@ def pdf_call(data, action, page=None):
         allowed = {"PATH", "LANG", "LC_ALL", "SystemRoot", "SYSTEMROOT", "TMPDIR", "TMP", "TEMP", "FONTCONFIG_PATH", "FONTCONFIG_FILE"}
         result = subprocess.run([sys.executable, "-m", "backend.pdf_worker"], cwd=ROOT,
                                 input=dump({"pdf": base64.b64encode(data).decode(), "action": action, "page": page}),
-                                text=True, encoding="utf-8", env={k: v for k, v in os.environ.items() if k in allowed}, capture_output=True, timeout=30)
+                                text=True, encoding="utf-8", env={**{k: v for k, v in os.environ.items() if k in allowed}, "PYTHONIOENCODING": "utf-8"}, capture_output=True, timeout=30)
         value = json.loads(result.stdout) if result.returncode == 0 else {}
         if value.get("error"):
             raise HTTPException(422, value["error"])
@@ -65,7 +65,8 @@ def document_view(db, doc):
         pages.append({"page": row["page"], "selected": row["page"] in selected, "upload_id": row["upload_id"],
                       "preview_url": f"/api/v1/documents/{doc['id']}/pages/{row['page']}/preview",
                       "image_url": f"/api/v1/documents/{doc['id']}/pages/{row['page']}/image",
-                      "result": result, "error": row["error"]})
+                      "result": result, "error": row["error"],
+                      **({"search_text": row["text"]} if doc["kind"] == "report" else {})})
     return {"id": doc["id"], "kind": doc["kind"], "filename": doc["filename"], "page_count": doc["page_count"],
             "selected": selected, "pages": pages, "attached_draft_id": linked_draft(db, doc["id"]) if doc["kind"] == "medicine" else None,
             "created": doc["created"], "updated": doc["updated"]}
@@ -146,7 +147,8 @@ def register_pdf_routes(app, store, current, limit, analyze, report, locks):
             if usage[0] >= 50 or usage[1] + len(data) > 100 * 1024 * 1024:
                 raise HTTPException(409, "PDF 已达到本地存储上限。")
             db.execute("INSERT INTO pdf_documents VALUES(?,?,?,?,?,?,'[]',?,?)", (did, auth["user_id"], body.kind, filename, data, manifest["page_count"], now, now))
-            db.executemany("INSERT INTO pdf_pages(document_id,page,thumbnail) VALUES(?,?,?)", [(did, p["page"], base64.b64decode(p["thumbnail"])) for p in manifest["pages"]])
+            db.executemany("INSERT INTO pdf_pages(document_id,page,thumbnail,text) VALUES(?,?,?,?)",
+                           [(did, p["page"], base64.b64decode(p["thumbnail"]), p.get("text", "")) for p in manifest["pages"]])
         return get_view(did, auth)
 
     @app.get("/api/v1/documents", tags=["PDF"])

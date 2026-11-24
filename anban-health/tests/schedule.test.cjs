@@ -28,6 +28,13 @@ test('no fabricated medicines for empty accounts, examples or unconfirmed entrie
   assert(buildWeek(cards,now).days.every(d=>d.slots.every(s=>s.meds.length===0)));
  }
 });
+test('a card appears only within its inclusive cycle, with all three daily doses',()=>{
+ const timed={...card,start_date:'2026-11-22',end_date:'2026-11-24',meds:[med('08:00'),med('12:00'),med('18:30')]};
+ const sizes=c=>buildWeek([c],now).days.map(d=>d.slots.flatMap(s=>s.meds).length);
+ assert.deepEqual(sizes(timed),[0,3,3,3,0,0,0]);
+ assert.deepEqual(sizes({...timed,end_date:null}),[0,3,3,3,3,3,3]);
+ assert.deepEqual(sizes({...timed,end_date:timed.start_date}),[0,3,0,0,0,0,0]);
+});
 test('dayparts use clock time; meal relationship is not inferred or rewritten',()=>{
  for(const [t,p] of [['00:00','morning'],['10:59','morning'],['11:00','noon'],['16:59','noon'],['17:00','evening'],['23:59','evening'],['24:00',null],['08:60',null],['8:00',null]])assert.equal(periodFor(t),p);
  const w=buildWeek([{...card,meds:[{...med('12:30'),meal:'医嘱：不随餐'}]}],now);assert.equal(w.days[0].slots[1].meds[0].meal,'医嘱：不随餐');

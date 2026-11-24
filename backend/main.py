@@ -9,6 +9,7 @@ import secrets
 import sqlite3
 import threading
 import time
+import wave
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager, closing
 from datetime import datetime
@@ -17,25 +18,46 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import knowledge as kb
 from .models import (CardCreate, Credentials, DraftCreate, DraftUpdate, Message,
-                     Photo, Profile, ReminderCreate, ReminderUpdate, ReportRequest)
+                     Photo, Profile, ReminderCreate, ReminderUpdate, ReportRequest, ReportVoiceSummary, ReportIndicatorLookup,
+                     ReportLifestyle, MedicationLogUpdate)
 from .providers import Providers, SKILLS, skill
 from .pdf_service import document_view, pdf_source, register_pdf_routes, report_view
-from .services import (LEGAL, REPORT_MEANING, calendar_ics, card_png, collect_due,
-                       decode_photo, local_audio, narration, next_occurrence, validate_med)
+from .services import (LEGAL, REMINDER_WINDOW, REPORT_MEANING, calendar_ics, card_png, collect_due,
+                       decode_photo, dose_needs_unit, doses, local_audio, narration, next_occurrence, validate_med)
 from .store import Store, dump, new_id
+from .report_lookup import explain_indicator
+from .reminder_voice import TEXT as REMINDER_TEXT, qwen_audio, reminder_audio
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env", override=False)
 COOKIE = "anban_session"
 SAMPLE = [{"name": "示例药甲", "dose": "1片", "time": "08:00", "meal": "早餐后"},
           {"name": "示例药乙", "dose": "1粒", "time": "18:00", "meal": "随晚餐"}]
+
+
+def preferred_audio(text):
+    try:
+        return qwen_audio(text)
+    except (OSError, ValueError, KeyError, TypeError, EOFError, wave.Error):
+        return local_audio(text)
+
+
+def reminder_text(med):
+    text = f'您好，这是{med["name"]}的提醒。请查看已核对的用药卡。'
+    if dose_needs_unit(med["dose"]):
+        return text
+    return text + f'卡片记录的每次用量是{med["dose"]}。' + (f'{med["meal"]}。' if med.get("meal") else "")
+
+
+def reminder_synth(text):
+    return preferred_audio(text)
 
 
 def digest(token):
@@ -59,6 +81,28 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
     rate_buckets = defaultdict(deque)
     rate_lock = threading.Lock()
 
+    def prepare_reminder_voices(card_id=None):
+        with store.db() as db:
+            rows = db.execute(
+                "SELECT r.card_id,r.med_index,c.data FROM reminders r JOIN cards c ON c.id=r.card_id "
+                "LEFT JOIN reminder_audio_cache a ON a.card_id=r.card_id AND a.med_index=r.med_index "
+                "WHERE r.enabled=1 AND a.card_id IS NULL AND (? IS NULL OR r.card_id=?)",
+                (card_id, card_id),
+            ).fetchall()
+        for row in rows:
+            key = (row["card_id"], row["med_index"])
+            with locks["reminder-audio:" + key[0] + ":" + str(key[1])]:
+                with store.db() as db:
+                    if db.execute("SELECT 1 FROM reminder_audio_cache WHERE card_id=? AND med_index=?", key).fetchone():
+                        continue
+                meds = json.loads(row["data"])["meds"]
+                if not 0 <= key[1] < len(meds):
+                    continue
+                audio = reminder_synth(reminder_text(meds[key[1]]))
+                if audio:
+                    with store.db() as db:
+                        db.execute("INSERT OR IGNORE INTO reminder_audio_cache VALUES(?,?,?)", (*key, audio))
+
     @asynccontextmanager
     async def lifespan(app):
         async def scheduler():
@@ -69,8 +113,10 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
                     pass  # Pending rows remain durable and will retry on the next tick.
                 await asyncio.sleep(10)
         task = asyncio.create_task(scheduler())
+        warmup = asyncio.create_task(asyncio.to_thread(prepare_reminder_voices))
         yield
         task.cancel()
+        warmup.cancel()
         try:
             await task
         except asyncio.CancelledError:
@@ -361,7 +407,7 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
             return {"items": [store.draft(row)] if row and not finished else []}
 
     @app.post("/api/v1/drafts/{draft_id}/uploads/{upload_id}", tags=["用药核对"])
-    def attach(draft_id: str, upload_id: str, auth=Depends(current)):
+    def attach(draft_id: str, upload_id: str, medication_id: str = "", auth=Depends(current)):
         with store.db() as db:
             db.execute("BEGIN IMMEDIATE")
             row = store.owned(db, "drafts", draft_id, auth["user_id"])
@@ -369,12 +415,39 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
             d = store.draft(row)
             if photo["kind"] != "medicine" or d["demo"] or d["phase"] != "photos":
                 raise HTTPException(409, "当前草稿不能添加这张照片。")
-            if any(m.get("upload_id") == upload_id for m in d["meds"]):
-                return d
-            if len(d["meds"]) >= 5:
-                raise HTTPException(422, "一次最多核对五盒药。")
+            for med in d["meds"]:
+                if med.get("upload_id") == upload_id or any(p["id"] == upload_id for p in med.get("extra_photos", [])):
+                    return d
+            target = next((m for m in d["meds"] if m["id"] == medication_id), None)
+            if medication_id and target is None:
+                raise HTTPException(404, "要补拍的药品已不存在。")
+            if target is None and len(d["meds"]) >= 5:
+                raise HTTPException(422, "一次最多核对五种药。")
+            if target is not None and len(target.get("extra_photos", [])) >= 4:
+                raise HTTPException(422, "每种药最多补充四张照片。")
             analysis = json.loads(photo["analysis"]) if photo["analysis"] else {}
-            d["meds"].append({"id": new_id(), "name": analysis.get("fields", {}).get("name", "")[:80], "dose": "", "time": "", "meal": "", "ok": False, "upload_id": upload_id, "photo": f"/api/v1/uploads/{upload_id}/image", "recognition": analysis})
+            fields = analysis.get("fields", {})
+            name = fields.get("name", "").strip()[:80]
+            image_url = f"/api/v1/uploads/{upload_id}/image"
+            candidate = {"name": name, "dose": "", "time": "", "meal": ""}
+            evidence = fields.get("patient_directions", "")
+            if evidence and not fields.get("uncertain") and not re.search(r"按需|隔[天日]|每周|必要时|一日多次|每日多次", evidence):
+                for key, maximum in (("dose", 40), ("time", 5), ("meal", 80)):
+                    value = fields.get(key, "").strip()
+                    if 0 < len(value) <= maximum and value in evidence:
+                        if key != "time" or re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value):
+                            candidate[key] = value
+            if target is None:
+                d["meds"].append({"id": new_id(), **candidate, "ok": False, "upload_id": upload_id,
+                                  "photo": image_url, "recognition": analysis})
+            else:
+                if name and target.get("name") and name != target["name"]:
+                    raise HTTPException(422, "补拍照片读到的药名不同，请作为另一种药添加或重新拍摄。")
+                target.setdefault("extra_photos", []).append({"id": upload_id, "url": image_url, "recognition": analysis})
+                if not target["ok"] and not any(target.get(k) and candidate[k] and target[k] != candidate[k] for k in candidate):
+                    for key, value in candidate.items():
+                        if not target.get(key):
+                            target[key] = value
             d["revision"] += 1
             db.execute("UPDATE drafts SET data=?,revision=?,updated=? WHERE id=?", (dump(d), d["revision"], time.time(), draft_id))
             return d
@@ -395,11 +468,14 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
                 if item["ok"]:
                     validate_med(item)
                 old = existing[med.id]
-                changed = any(old.get(k) != item[k] for k in ("name", "dose", "time", "meal"))
+                changed = any(old.get(k, default) != item[k] for k, default in (
+                    ("name", ""), ("dose", ""), ("time", ""), ("meal", ""),
+                    ("extra_doses", []), ("food_notes", ""),
+                ))
                 confirmed_at = (time.time() if changed or not old.get("ok") else old.get("confirmed_at", time.time())) if item["ok"] else None
                 meds.append({**old, **item, "confirmed_at": confirmed_at})
-            if body.phase in {"review", "summary"} and len(meds) < 2:
-                raise HTTPException(422, "至少添加两盒药。")
+            if body.phase in {"review", "summary"} and not meds:
+                raise HTTPException(422, "至少添加一种药。")
             if body.phase == "summary" and any(not m["ok"] for m in meds):
                 raise HTTPException(422, "请先逐盒核对。")
             d.update(meds=meds, index=min(body.index, max(0, len(meds) - 1)), phase=body.phase, revision=body.revision + 1)
@@ -417,14 +493,17 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
             if body.revision != row["revision"]:
                 raise HTTPException(409, "草稿已更新，请重新核对汇总。")
             d = store.draft(row)
-            if d["phase"] != "summary" or not 2 <= len(d["meds"]) <= 5 or any(not m["ok"] for m in d["meds"]):
+            if d["phase"] != "summary" or not 1 <= len(d["meds"]) <= 5 or any(not m["ok"] for m in d["meds"]):
                 raise HTTPException(422, "必须完成每一盒药的人工核对后才能生成卡片。")
             for m in d["meds"]:
                 validate_med(m)
             p = json.loads(db.execute("SELECT data FROM profiles WHERE user_id=?", (auth["user_id"],)).fetchone()[0])
             cid = new_id()
             card = {"id": cid, "demo": d["demo"], "person": p.get("name", ""), "date": datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y/%m/%d"),
-                    "meds": [{k: m[k] for k in ("name", "dose", "time", "meal")} for m in d["meds"]], "legal": LEGAL, "source": {"draft_id": d["id"], "revision": body.revision, "confirmations": [{"medication_id": m["id"], "confirmed_at": m["confirmed_at"]} for m in d["meds"]]}, "diet": p.get("diet", "")}
+                    "meds": [entry for m in d["meds"] for entry in doses(m)], "legal": LEGAL, "source": {"draft_id": d["id"], "revision": body.revision, "confirmations": [{"medication_id": m["id"], "confirmed_at": m["confirmed_at"]} for m in d["meds"]]}, "diet": p.get("diet", "")}
+            if body.start_date:
+                card["start_date"] = body.start_date.isoformat()
+                card["end_date"] = body.end_date.isoformat() if body.end_date else None
             card["narration"] = narration(card)
             db.execute("INSERT INTO cards VALUES(?,?,?,?,?,NULL,NULL,?)", (cid, auth["user_id"], d["id"], body.revision, dump(card), time.time()))
             return card
@@ -446,18 +525,23 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
             with store.db() as db:
                 row = store.owned(db, "cards", card_id, auth["user_id"])
                 card = store.card(row)
+                if any(dose_needs_unit(m["dose"]) for m in card["meds"]):
+                    return {"audio_url": None, "text": narration(card), "mode": "browser"}
                 if row["audio"]:
                     return {"audio_url": card["audio_url"], "text": card["narration"], "mode": "server"}
-            audio = local_audio(card["narration"])
+            audio = preferred_audio(narration(card))
             if audio:
                 with store.db() as db:
-                    db.execute("UPDATE cards SET audio=?,audio_mime='audio/mp4' WHERE id=?", (audio, card_id))
+                    mime = "audio/wav" if audio.startswith(b"RIFF") else "audio/mp4"
+                    db.execute("UPDATE cards SET audio=?,audio_mime=? WHERE id=?", (audio, mime, card_id))
             return {"audio_url": f"/api/v1/cards/{card_id}/audio" if audio else None, "text": card["narration"], "mode": "server" if audio else "browser"}
 
     @app.get("/api/v1/cards/{card_id}/audio", tags=["用药卡"])
     def audio_file(card_id: str, auth=Depends(current)):
         with store.db() as db:
             row = store.owned(db, "cards", card_id, auth["user_id"])
+            if any(dose_needs_unit(m["dose"]) for m in store.card(row)["meds"]):
+                raise HTTPException(422, "有用量缺少单位，请核对后重新制卡。")
             if not row["audio"]:
                 raise HTTPException(404, "语音尚未生成。")
             return Response(bytes(row["audio"]), media_type=row["audio_mime"])
@@ -480,6 +564,93 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
             db.execute("INSERT INTO reports VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,created=excluded.created", (rid, auth["user_id"], body.upload_id, dump(data), time.time()))
             return data
 
+    @app.post("/api/v1/reports/indicator", tags=["体检报告"])
+    def report_indicator(body: ReportIndicatorLookup, request: Request, auth=Depends(current)):
+        limit(request, "report-indicator", 48)
+        result = explain_indicator(provider, body.name)
+        return {"entry": result}
+
+    @app.post("/api/v1/reports/voice", tags=["体检报告"])
+    def report_voice(body: ReportVoiceSummary, request: Request, auth=Depends(current)):
+        limit(request, "report-voice", 8)
+        audio = preferred_audio(body.text)
+        if not audio:
+            raise HTTPException(503, "语音合成暂时不可用。")
+        return Response(audio, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/v1/reports/lifestyle", tags=["体检报告"])
+    def get_report_lifestyle(auth=Depends(current)):
+        with store.db() as db:
+            row = db.execute("SELECT data,updated FROM report_lifestyle WHERE user_id=?",
+                             (auth["user_id"],)).fetchone()
+        return {"summary": {**json.loads(row["data"]), "updated": row["updated"]} if row else None}
+
+    @app.put("/api/v1/reports/lifestyle", tags=["体检报告"])
+    def save_report_lifestyle(body: ReportLifestyle, auth=Depends(current)):
+        updated = time.time()
+        uid = auth["user_id"]
+        data = body.model_dump_json(exclude_defaults=True)
+        with store.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if not db.execute("SELECT 1 FROM report_lifestyle_history WHERE user_id=? LIMIT 1", (uid,)).fetchone():
+                db.execute("INSERT INTO report_lifestyle_history(user_id,data,created) "
+                           "SELECT user_id,data,updated FROM report_lifestyle WHERE user_id=?", (uid,))
+            db.execute("INSERT INTO report_lifestyle VALUES(?,?,?) ON CONFLICT(user_id) "
+                       "DO UPDATE SET data=excluded.data,updated=excluded.updated", (uid, data, updated))
+            db.execute("INSERT INTO report_lifestyle_history(user_id,data,created) VALUES(?,?,?)", (uid, data, updated))
+        return {"summary": {**body.model_dump(exclude_defaults=True), "updated": updated}}
+
+    @app.get("/api/v1/reports/lifestyle/history", tags=["体检报告"])
+    def report_lifestyle_history(before: int | None = None, auth=Depends(current)):
+        uid = auth["user_id"]
+        with store.db() as db:
+            rows = db.execute(
+                "SELECT id,data,created FROM report_lifestyle_history WHERE user_id=? AND (? IS NULL OR id<?) "
+                "ORDER BY id DESC LIMIT 21", (uid, before, before),
+            ).fetchall()
+            if not rows and before is None:
+                latest = db.execute("SELECT data,updated FROM report_lifestyle WHERE user_id=?", (uid,)).fetchone()
+                return {"items": [{**json.loads(latest["data"]), "updated": latest["updated"]}] if latest else [], "next": None}
+        return {"items": [{**json.loads(row["data"]), "updated": row["created"]} for row in rows[:20]],
+                "next": rows[19]["id"] if len(rows) > 20 else None}
+
+    @app.put("/api/v1/medication-log/{card_id}/{med_index}", tags=["用药记录"])
+    def record_medication(card_id: str, med_index: int, body: MedicationLogUpdate, auth=Depends(current)):
+        uid = auth["user_id"]
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+        day = now.date().isoformat()
+        if body.day != now.date():
+            raise HTTPException(422, "日期已变化，请重新打开今日服用记录。")
+        with store.db() as db:
+            card = store.card(store.owned(db, "cards", card_id, uid))
+            if card["demo"] or not 0 <= med_index < len(card["meds"]):
+                raise HTTPException(422, "请选择真实用药卡上的一项用药。")
+            key = (uid, card_id, med_index, day)
+            if body.taken:
+                if (card.get("start_date") and day < card["start_date"]) or (card.get("end_date") and day > card["end_date"]):
+                    raise HTTPException(422, "今天不在这张用药卡的服药周期内。")
+                db.execute("INSERT OR IGNORE INTO medication_log VALUES(?,?,?,?,?)", (*key, now.timestamp()))
+            else:
+                db.execute("DELETE FROM medication_log WHERE user_id=? AND card_id=? AND med_index=? AND day=?", key)
+        return {"taken": body.taken, "day": day}
+
+    @app.get("/api/v1/medication-log", tags=["用药记录"])
+    def medication_log(before: float | None = None, today: bool = False, auth=Depends(current)):
+        day = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+        with store.db() as db:
+            rows = db.execute(
+                "SELECT l.card_id,l.med_index,l.day,l.recorded_at,c.data FROM medication_log l "
+                "JOIN cards c ON c.id=l.card_id WHERE l.user_id=? AND (? IS NULL OR l.recorded_at<?) "
+                "AND (?=0 OR l.day=?) ORDER BY l.recorded_at DESC LIMIT ?",
+                (auth["user_id"], before, before, int(today), day, -1 if today else 21),
+            ).fetchall()
+        items = []
+        for row in rows if today else rows[:20]:
+            item = dict(row)
+            med = json.loads(item.pop("data"))["meds"][item.pop("med_index")]
+            items.append({**item, "med_index": row["med_index"], "name": med["name"], "dose": med["dose"], "time": med["time"]})
+        return {"items": items, "next": rows[19]["recorded_at"] if not today and len(rows) > 20 else None}
+
     @app.get("/api/v1/reports", tags=["体检报告"])
     def reports(auth=Depends(current)):
         with store.db() as db:
@@ -501,10 +672,13 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
     @app.get("/api/v1/reminders", tags=["提醒"])
     def reminders(auth=Depends(current)):
         with store.db() as db:
-            return {"items": [dict(r) for r in db.execute("SELECT * FROM reminders WHERE user_id=? ORDER BY at,id", (auth["user_id"],))]}
+            return {"items": [dict(r) for r in db.execute(
+                "SELECT r.*, a.card_id IS NOT NULL AS voice_ready FROM reminders r LEFT JOIN reminder_audio_cache a "
+                "ON a.card_id=r.card_id AND a.med_index=r.med_index WHERE r.user_id=? ORDER BY r.at,r.id",
+                (auth["user_id"],))]}
 
     @app.post("/api/v1/reminders", tags=["提醒"])
-    def set_reminders(body: ReminderCreate, auth=Depends(current)):
+    def set_reminders(body: ReminderCreate, background: BackgroundTasks, auth=Depends(current)):
         with store.db() as db:
             db.execute("BEGIN IMMEDIATE")
             card = store.card(store.owned(db, "cards", body.card_id, auth["user_id"]))
@@ -519,15 +693,18 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
                 db.execute("""INSERT INTO reminders VALUES(?,?,?,?,?,?,1,?,?) ON CONFLICT(user_id,card_id,med_index)
                            DO UPDATE SET at=excluded.at,timezone=excluded.timezone,enabled=1,next_at=excluded.next_at""",
                            (new_id(), auth["user_id"], body.card_id, index, at, body.timezone, next_occurrence(at, body.timezone, time.time()), time.time()))
+        background.add_task(prepare_reminder_voices, body.card_id)
         return reminders(auth)
 
     @app.patch("/api/v1/reminders/{reminder_id}", tags=["提醒"])
-    def reminder_toggle(reminder_id: str, body: ReminderUpdate, auth=Depends(current)):
+    def reminder_toggle(reminder_id: str, body: ReminderUpdate, background: BackgroundTasks, auth=Depends(current)):
         with store.db() as db:
             row = store.owned(db, "reminders", reminder_id, auth["user_id"])
             db.execute("UPDATE reminders SET enabled=?,next_at=? WHERE id=?", (int(body.enabled), next_occurrence(row["at"], row["timezone"], time.time()), reminder_id))
             if not body.enabled:
                 db.execute("UPDATE reminder_events SET acknowledged=1 WHERE reminder_id=?", (reminder_id,))
+        if body.enabled:
+            background.add_task(prepare_reminder_voices, row["card_id"])
         return {"id": reminder_id, "enabled": body.enabled}
 
     @app.get("/api/v1/reminders/calendar.ics", tags=["提醒"])
@@ -540,7 +717,58 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
     def events(auth=Depends(current)):
         collect_due(store)
         with store.db() as db:
-            return {"items": [dict(r) for r in db.execute("SELECT e.id,e.scheduled,r.at,r.card_id FROM reminder_events e JOIN reminders r ON e.reminder_id=r.id WHERE e.user_id=? AND e.acknowledged=0 AND r.enabled=1 ORDER BY scheduled", (auth["user_id"],))]}
+            rows = db.execute(
+                "SELECT e.id,e.scheduled,r.at,r.card_id,r.id AS reminder_id,r.med_index,c.data,"
+                "a.card_id IS NOT NULL AS voice_ready FROM reminder_events e JOIN reminders r ON e.reminder_id=r.id "
+                "JOIN cards c ON c.id=r.card_id LEFT JOIN reminder_audio_cache a "
+                "ON a.card_id=r.card_id AND a.med_index=r.med_index "
+                "WHERE e.user_id=? AND e.acknowledged=0 AND r.enabled=1 AND e.scheduled>=? "
+                "AND NOT EXISTS (SELECT 1 FROM reminder_presentations p WHERE p.event_id=e.id) ORDER BY e.scheduled",
+                (auth["user_id"], time.time() - REMINDER_WINDOW),
+            ).fetchall()
+        items = []
+        for row in rows:
+            item = dict(row)
+            meds = json.loads(item.pop("data"))["meds"]
+            index = item.pop("med_index")
+            if not 0 <= index < len(meds):
+                continue
+            med = meds[index]
+            item["medicine"] = med["name"]
+            item["voice_text"] = reminder_text(med)
+            items.append(item)
+        return {"items": items}
+
+    @app.post("/api/v1/reminder-events/{event_id}/present", tags=["提醒"])
+    def present_reminder(event_id: str, auth=Depends(current)):
+        with store.db() as db:
+            inserted = db.execute(
+                "INSERT OR IGNORE INTO reminder_presentations SELECT e.id FROM reminder_events e "
+                "JOIN reminders r ON r.id=e.reminder_id WHERE e.id=? AND e.user_id=? "
+                "AND e.acknowledged=0 AND r.enabled=1 AND e.scheduled>=?",
+                (event_id, auth["user_id"], time.time() - REMINDER_WINDOW),
+            ).rowcount
+        return {"present": bool(inserted)}
+
+    @app.get("/api/v1/reminders/{reminder_id}/voice.wav", tags=["提醒"])
+    def cached_reminder_voice(reminder_id: str, auth=Depends(current)):
+        with store.db() as db:
+            row = store.owned(db, "reminders", reminder_id, auth["user_id"])
+            cached = db.execute("SELECT audio FROM reminder_audio_cache WHERE card_id=? AND med_index=?",
+                                (row["card_id"], row["med_index"])).fetchone()
+        if cached is None:
+            raise HTTPException(404, "这条提醒的语音还没有准备好。")
+        return Response(cached["audio"], media_type="audio/wav", headers={"Cache-Control": "private, no-cache"})
+
+    @app.get("/api/v1/reminders/voice.wav", tags=["提醒"])
+    def reminder_voice(auth=Depends(current)):
+        try:
+            audio = reminder_audio()
+        except (OSError, ValueError, KeyError, TypeError, EOFError, wave.Error):
+            audio = local_audio(REMINDER_TEXT)
+        if not audio:
+            raise HTTPException(503, "提醒语音暂时不可用。")
+        return Response(audio, media_type="audio/wav", headers={"Cache-Control": "private, max-age=3600"})
 
     @app.post("/api/v1/reminder-events/{event_id}/ack", tags=["提醒"])
     def acknowledge(event_id: str, auth=Depends(current)):
