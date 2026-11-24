@@ -102,11 +102,11 @@ function lifestyleOverview(indicators){
  const within=indicators.filter(i=>i.status==='within').length;
  const uncertain=indicators.filter(i=>i.status==='unmarked').length;
  const attention=indicators.length-within-uncertain;
- const allInRange=indicators.length>0&&indicators.every(i=>i.status==='within'&&i.reference);
- return '<section class="report-card-entry"><h3>'+(allInRange?'这次所选指标均在参考范围内':'本次报告小结')+'</h3>'+
+ const allInRange=within>0&&within===indicators.length;
+ return '<section class="report-card-entry"><h3>本次报告小结</h3>'+
+  (allInRange?'<p><strong>这次核对的指标都在参考范围内，目前没有需要针对这些指标特别注意的生活事项。</strong></p>':'')+
   '<p>已核对 '+indicators.length+' 项 · '+within+' 项在参考范围内 · '+attention+' 项需关注 · '+uncertain+' 项暂无法判断</p>'+
-  (allInRange?'<p>这是个好消息。这个小结涵盖本次核对的项目。</p>':
-   uncertain?'<p>暂无法判断的项目，请对照原报告上的结果、单位和参考范围。</p>':'')+'</section>';
+  (uncertain?'<p>暂无法判断的项目，请对照原报告上的结果、单位和参考范围。</p>':'')+'</section>';
 }
 
 function lifestyleContent(summary){
