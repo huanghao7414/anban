@@ -174,3 +174,106 @@ dialog::backdrop {background:#29445770;backdrop-filter:blur(4px);}
 #reportLookupStatus:empty{display:none}
 
 .pdf-page[hidden]{display:none}.pdf-search input{width:100%}#reportPageSearchStatus:empty{display:none}.slot-med-name{overflow-wrap:anywhere;font-size:.95rem}
+
+/* The daily card sits over the full organizer in the browser's top layer. */
+#scene{position:fixed}
+#organizerStage{position:absolute;pointer-events:none;inset:0}
+dialog.organizer-day{position:fixed;inset:50% auto auto 50%;width:min(900px,calc(100% - 48px));height:min(820px,calc(100dvh - 64px));max-width:none;max-height:none;margin:0;padding:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;border:2px solid #fff;border-radius:28px;background:#f8fafb;box-shadow:0 28px 90px #102c4352,0 5px 0 #bfd0dc;overflow:hidden;color:#233e4d;opacity:0;transform:translate(-50%,-50%) translateY(28px) scale(.96);transition:transform 420ms var(--ease),opacity 260ms}
+dialog.organizer-day:not([open]){display:none}
+.day-expanded dialog.organizer-day{opacity:1;transform:translate(-50%,-50%) translateY(0) scale(1)}
+.organizer-day::backdrop{background:#18384a40;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);opacity:0;transition:opacity 280ms}
+.day-expanded .organizer-day::backdrop{opacity:1}
+.organizer-day-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:22px 24px 18px;border-bottom:1px solid #d4dfe6}
+.organizer-day-header p{font-size:1rem;color:#405b6b}.organizer-day-header h2{font-size:1.7rem;line-height:1.4;margin-top:2px}.organizer-day-header h2:focus{outline:none}.organizer-day-header button{flex:none;background:#edf3f6}
+.organizer-day-body{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:18px 22px;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(3,minmax(min-content,1fr));align-items:stretch;gap:12px;min-height:0;scroll-padding:18px}
+.organizer-period{border:1px solid #d4dfe6;background:#fff;border-radius:18px;overflow:clip;flex-shrink:0}
+.organizer-period h3{display:flex;gap:12px;align-items:center;padding:12px 16px;font-size:1.25rem;background:#f4e9c7;color:#574922}
+.organizer-period[data-period=noon] h3{background:#e4efdf;color:#36553d}.organizer-period[data-period=evening] h3{background:#e3ebf6;color:#354d70}
+.organizer-period[data-selected=true]{border-color:#36596e;box-shadow:0 0 0 2px #36596e}
+.period-sun{font-size:1.4rem;line-height:1}.organizer-medicine{padding:16px 18px}.organizer-medicine+.organizer-medicine{border-top:1px solid #dae3e8}
+.organizer-dose-line{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:1.4rem;line-height:1.4}.organizer-dose-line time{font-variant-numeric:tabular-nums;font-weight:750}.organizer-dose-line strong{color:#274f42;font-size:1.25rem}
+.organizer-medicine h4{font-size:1.3rem;font-weight:650;line-height:1.5;overflow-wrap:anywhere;margin:8px 0 0}.organizer-meal{font-size:1.1rem;margin-top:6px}.organizer-notice{font-size:1rem;line-height:1.65;margin-top:12px;padding-top:10px;border-top:1px dashed #ccd9d7;overflow-wrap:anywhere}.organizer-notice b{margin-right:10px}.organizer-empty{padding:16px 18px;font-size:1.05rem;color:#4c6371}
+.organizer-day-actions{display:flex;gap:10px;flex-wrap:wrap;padding:14px 22px 18px;background:#eef3f7;border-top:1px solid #d4dfe6}.organizer-day-actions button{flex:1;font-size:1rem;white-space:nowrap;min-height:50px}
+.scene-footer{transition:opacity 250ms,visibility 250ms}.day-expanded .scene-footer{opacity:0;visibility:hidden;pointer-events:none}.day-expanded .scene-footer button{pointer-events:none}
+
+
+.organizer-day-header{display:grid;grid-template-columns:minmax(0,1fr) auto;padding:20px 24px 14px;background:#fff}
+.organizer-date-nav{grid-column:1/-1;display:flex;justify-content:space-between;gap:12px;margin-top:2px}
+.organizer-date-nav button{min-height:44px;padding:6px 16px;background:#f3f6f8;font-size:1rem}
+.organizer-day-actions{justify-content:flex-end;padding:14px 22px;background:#eef3f7}.organizer-day-actions button{flex:0 1 auto;min-width:160px}
+@media(max-width:700px){
+ dialog.organizer-day{width:calc(100% - 24px);height:calc(100dvh - 40px);border-radius:22px}
+ .organizer-day-header{padding:14px 16px 10px;gap:10px}.organizer-day-header h2{font-size:1.45rem}.organizer-day-header p{font-size:1rem}.organizer-day-header button{min-height:46px;padding:8px 12px}
+ .organizer-day-body{display:flex;flex-direction:column;align-items:stretch;padding:14px;gap:14px}.organizer-day-actions{padding:12px 14px;gap:8px}.organizer-day-actions button{flex:1;min-width:0;padding:8px;font-size:1rem;min-height:48px}
+ .organizer-medicine{padding:14px}.organizer-period h3{padding:10px 14px}.organizer-dose-line{font-size:1.35rem}
+}
+@media(max-height:500px){dialog.organizer-day{height:calc(100dvh - 20px)}.organizer-day-header{padding:10px 16px;gap:8px}.organizer-day-header>div:first-child{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.organizer-day-header h2{font-size:1.3rem}.organizer-day-actions{padding:8px 14px}}
+@media(prefers-reduced-motion:reduce){.organizer-day::backdrop,dialog.organizer-day{transition:none!important}}
+
+/* Same row order and compartment proportions as the physical organizer. */
+.organizer-period{display:grid;grid-template-columns:100px minmax(0,1fr);min-height:142px}
+.organizer-period h3{flex-direction:column;justify-content:center;align-items:center;gap:10px;padding:16px 10px;font-size:1.3rem}
+.organizer-period-content{min-width:0;align-self:center}
+.organizer-medicine{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:18px;align-items:center;padding:14px 20px}
+.organizer-dose-line{grid-column:1/-1;margin-bottom:4px}
+.organizer-medicine h4{margin:0;font-size:1.3rem}
+.organizer-meal{margin:0;font-size:1.05rem}
+.organizer-notice{grid-column:1/-1;margin-top:8px;padding-top:8px}
+.organizer-day-header{padding:16px 22px 12px}
+.organizer-day-header>div:first-child{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+.organizer-day-header h2{order:-1;margin:0}
+@media(max-width:700px){
+ .organizer-day-body{display:grid;grid-template-rows:repeat(3,minmax(min-content,1fr));gap:12px;padding:12px}
+ .organizer-period{grid-template-columns:62px minmax(0,1fr);min-height:164px}
+ .organizer-period h3{padding:12px 6px;font-size:1.1rem}
+ .organizer-medicine{display:block;padding:14px 12px}
+ .organizer-dose-line{font-size:1.2rem;gap:4px 12px}.organizer-dose-line strong{font-size:1.15rem}
+ .organizer-medicine h4{margin-top:6px;font-size:1.25rem}.organizer-meal{margin-top:6px;font-size:1rem}
+ .organizer-day-header>div:first-child{display:block}.organizer-day-header{padding:12px 16px 10px}
+}
+
+.medicine-note-access{position:absolute;z-index:1;background:transparent!important;border:0;padding:0;box-shadow:none!important;min-height:44px;transform:none!important;border-radius:8px}
+.medicine-note-access span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.medicine-note-access:focus-visible{outline:4px solid #9a6539;outline-offset:5px;background:#fff6ca33!important}
+.medicine-note-access.is-fallback{right:24px;top:174px;width:150px;background:#fff0b8!important;border:2px solid #fff5d5;box-shadow:0 8px 18px #4b51451f!important;transform:rotate(3deg)!important}
+.medicine-note-access.is-fallback span{position:static;width:auto;height:auto;clip-path:none}
+.medicine-note-detail{display:grid;gap:20px}.medicine-note-detail h2{font-size:1.6rem}.medicine-note-detail ul{list-style:none;padding:0;margin:0;display:grid;gap:14px}
+.medicine-note-detail li{padding:14px 16px;border-radius:14px;background:#fff5d9;display:grid;gap:6px;overflow-wrap:anywhere}.medicine-note-detail li strong{font-size:1.25rem}.medicine-note-detail li span{font-size:1rem;color:#5f5540}
+#modal:has(.medicine-note-detail)::backdrop{backdrop-filter:blur(9px);background:#18384a40}
+.world-header,.week-picker,.scene-footer{z-index:2}
+
+/* Functional modes remain in the conversation on every viewport. */
+#nav{grid-template-columns:repeat(2,minmax(0,1fr));max-width:420px}
+.chat-tabs{display:flex;gap:6px;overflow-x:auto;overscroll-behavior-x:contain;padding:4px 2px 9px;scrollbar-width:thin}
+.chat-tabs button{flex:1 0 auto;min-height:46px;padding:9px 13px;border-radius:14px;border:1px solid transparent;background:transparent;font-size:1rem;white-space:nowrap;color:#456476}
+.chat-tabs button[aria-selected=true]{background:#e2edf3;border-color:#bad0de;color:#203f51;box-shadow:inset 0 1px 0 #fff}
+.chat-tabs button:focus-visible{outline:3px solid #7196ae;outline-offset:-3px}
+.workspace-meta:has(.chat-tabs:not([hidden])){padding-bottom:4px}
+.regimen-fields{display:grid;gap:16px;padding:18px;border-radius:18px;background:#eaf1f5}
+.regimen-fields fieldset{min-width:0;border:0;padding:0;margin:0}
+.regimen-fields legend{padding:0 0 10px;font-weight:600}
+.weekday-choices{display:flex;flex-wrap:wrap;gap:8px}
+.weekday-choices label{position:relative;display:flex;align-items:center;gap:6px;border:1px solid #beced8;border-radius:12px;padding:10px;background:#fff;min-height:46px;cursor:pointer}
+.weekday-choices label:has(:checked){background:#d3e4ed;border-color:#56798d}
+.weekday-choices input{width:19px;height:19px;min-height:0;padding:0;accent-color:#31566b}
+.medication-regimen{font-size:1.05rem;color:#31566b}
+@media(max-width:520px){.chat-tabs button{padding-inline:12px}.regimen-fields{padding:14px}.workspace-meta:has(.chat-tabs:not([hidden])){display:block}}
+@media(max-height:600px){.workspace-meta:has(.chat-tabs:not([hidden])){display:block}.chat-tabs button{min-height:42px;padding-block:7px}}
+@media print{.chat-tabs{display:none!important}}
+
+.workspace{grid-template-columns:minmax(0,1fr)}
+.workspace>*{min-width:0}
+.chat-tabs{max-width:100%}
+
+.medication-chat-heading{display:flex;align-items:center;gap:14px;min-width:0}
+.medication-chat-heading img{width:62px;height:76px;object-fit:contain;background:#fff;border-radius:12px;border:1px solid #d7e2e9}
+.medication-chat-heading h2{font-size:1.35rem;overflow-wrap:anywhere;flex:1}
+.medication-chat-heading>span{white-space:nowrap;font-size:1rem;color:#496474}
+.medication-turns{display:grid;gap:18px}
+.medication-turns .dialogline{max-width:100%}
+.medication-turns .bubble{white-space:pre-line}
+.medication-review-summary{padding:20px;border-radius:18px;background:#edf3e8;border:1px solid #d4e1cc;display:grid;gap:12px}
+.medication-review-summary h3{font-size:1.4rem}.medication-review-summary p{font-size:1.12rem;line-height:1.6;margin:0;overflow-wrap:anywhere}
+.medication-collected>summary{font-size:1.05rem;font-weight:600;min-height:44px;padding:10px 0;cursor:pointer}
+#medicationQuestion{display:grid;gap:16px;scroll-margin-bottom:16px}
+@media(max-width:520px){.medication-review-summary{padding:16px}.medication-turns .avatar{display:none}.medication-turns .bubble{padding:13px}.medication-dialogue{padding:14px}}

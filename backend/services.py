@@ -1,6 +1,7 @@
 import base64
 import binascii
 import io
+import json
 import os
 import re
 import shutil
@@ -15,6 +16,7 @@ from zoneinfo import ZoneInfo
 from PIL import Image, ImageOps, UnidentifiedImageError
 from fastapi import HTTPException
 from .store import new_id
+from .regimen import validate_regimen, active_on, next_med_occurrence, recurrence_rule, regimen_label
 
 LEGAL = "不替代执业医师诊断与处方调整"
 REPORT_MEANING = "箭头表示这一项高于或低于这张报告给出的参考范围。判断原因，还需要医生结合您的身体情况和其他检查一起看。"
@@ -41,12 +43,13 @@ def dose_label(dose):
 def doses(med):
     first = {key: med[key] for key in ("dose", "time", "meal")}
     return [
-        {**item, "name": med["name"], "food_notes": med.get("food_notes", "")}
+        {**item, "name": med["name"], "food_notes": med.get("food_notes", ""), **({"regimen": med["regimen"], "daily_count": 1 + len(med.get("extra_doses", []))} if med.get("regimen") else {})}
         for item in [first, *med.get("extra_doses", [])]
     ]
 
 
 def validate_med(m):
+    validate_regimen(m.get("regimen"))
     administrations = doses(m)
     if len({item["time"] for item in administrations}) != len(administrations):
         raise HTTPException(422, "同一盒药的服用时间不能重复。")
@@ -59,7 +62,9 @@ def validate_dose(m):
         raise HTTPException(422, "请按医嘱核对药名、每次用量和每日时间。")
     if dose_needs_unit(m["dose"]):
         raise HTTPException(422, DOSE_UNIT_MESSAGE)
-    if re.search(r"不清楚|忘了|不知道|不确定|记不清|可能|好像|隔天|隔日|每周|按需", m["name"] + m["dose"] + m.get("meal", "") + m.get("food_notes", "")):
+    if re.search(r"隔天|隔日|每周", m["dose"] + m.get("meal", "")) and (m.get("regimen") or {}).get("frequency") not in {"interval", "weekly"}:
+        raise HTTPException(422, "请在服用频率中核对间隔天数或每周日期。")
+    if re.search(r"不清楚|忘了|不知道|不确定|记不清|可能|好像|按需", m["name"] + m["dose"] + m.get("meal", "") + m.get("food_notes", "")):
         raise HTTPException(422, "每日吃法尚未确定，请先核对医嘱。")
 
 
@@ -86,13 +91,13 @@ def decode_photo(url):
 def narration(card):
     if any(dose_needs_unit(m["dose"]) for m in card["meds"]):
         return DOSE_REVIEW_SPEECH
-    chunks = ["这是示例用药卡。" if card.get("demo") else "这是您核对的每日用药。"]
+    chunks = ["这是示例用药卡。" if card.get("demo") else "这是您核对的用药安排。"]
     for m in sorted(card["meds"], key=lambda m: m["time"]):
         h, minute = map(int, m["time"].split(":"))
-        chunks.append(f"{h}点" + (f"{minute}分" if minute else "整") + f"，{m['name']}，每次{m['dose']}。" + (m["meal"] + "。" if m["meal"] else ""))
+        chunks.append(f"{h}点" + (f"{minute}分" if minute else "整") + f"，{m['name']}，每次{m['dose']}。" + (regimen_label(m) + "。" if m.get("regimen") else "") + (m["meal"] + "。" if m["meal"] else ""))
     text = "".join(chunks)
     if len(text) > 110:
-        return chunks[0] + "具体的药名、用量、饭前饭后和食物注意事项，请按已核对的大字卡查看。"
+        return chunks[0] + "请按大字卡上每种药的服用日期、频率、用量和时间使用。"
     return text + ("食物注意事项请看大字卡。" if any(m.get("food_notes") for m in card["meds"]) else "")
 
 
@@ -102,7 +107,7 @@ def card_png(card):
     fontpath = next((p for p in candidates if p and Path(p).is_file()), None)
     if not fontpath:
         raise HTTPException(503, "服务器需要配置 ANBAN_FONT_PATH 中文字体后才能生成 PNG。")
-    title = "示例每日用药卡" if card["demo"] else (card.get("person") or "我") + "的每日用药卡"
+    title = "示例用药卡" if card["demo"] else (card.get("person") or "我") + "的用药卡"
     date_label = card["date"]
     if card.get("start_date"):
         date_label = f'{card["start_date"]} 至 {card["end_date"]}' if card.get("end_date") else f'{card["start_date"]} 起'
@@ -166,6 +171,8 @@ def render_medication_card(meds, title, date, legal, font_path):
             right = text(dose_label(med["dose"]), 410, right + 3, 45,
                          "#8A441E" if dose_needs_unit(med["dose"]) else "#143E43", 462, True)
             y = max(y + 66, right)
+            if med.get("regimen"):
+                y = text(regimen_label(med), 190, y + 7, 38, ink, 686)
             if med.get("meal"):
                 y = text(med["meal"], 190, y + 7, 38, ink, 686)
             if med.get("food_notes"):
@@ -249,19 +256,26 @@ def collect_due(store, now=None):
     now = now if now is not None else time.time()
     with store.db() as db:
         db.execute("BEGIN IMMEDIATE")
-        for row in db.execute("SELECT * FROM reminders WHERE enabled=1 AND next_at<=?", (now,)).fetchall():
+        for row in db.execute("SELECT r.*,c.data FROM reminders r JOIN cards c ON c.id=r.card_id WHERE r.enabled=1 AND r.next_at<=?", (now,)).fetchall():
+            card = json.loads(row["data"])
+            med = card["meds"][row["med_index"]]
             at = row["next_at"]
-            if now - REMINDER_WINDOW <= at <= now:
+            day = datetime.fromtimestamp(at, ZoneInfo(row["timezone"])).date()
+            fresh = now - REMINDER_WINDOW <= at <= now and active_on(med, day, card)
+            if fresh:
                 db.execute("INSERT OR IGNORE INTO reminder_events VALUES(?,?,?,?,0)", (new_id(), row["id"], row["user_id"], at))
-            db.execute("UPDATE reminders SET next_at=? WHERE id=?", (next_occurrence(row["at"], row["timezone"], now), row["id"]))
+            upcoming = next_med_occurrence(row["at"], row["timezone"], now, med, card)
+            db.execute("UPDATE reminders SET next_at=?,enabled=? WHERE id=?", (upcoming or now, int(upcoming is not None), row["id"]))
 
 
 def calendar_ics(rows):
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Anban//Daily Medication//ZH-CN", "CALSCALE:GREGORIAN"]
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     for row in rows:
+        card = json.loads(row["data"]) if "data" in row.keys() else {}
+        med = card.get("meds", [{}])[row["med_index"]] if card else {}
         when = datetime.fromtimestamp(row["next_at"], ZoneInfo(row["timezone"])).strftime("%Y%m%dT%H%M%S")
         lines += ["BEGIN:VEVENT", "UID:" + row["id"] + "@anban.local", "DTSTAMP:" + stamp,
-                  f"DTSTART;TZID={row['timezone']}:{when}", "DURATION:PT1M", "RRULE:FREQ=DAILY", "SUMMARY:查看安伴用药卡",
+                  f"DTSTART;TZID={row['timezone']}:{when}", "DURATION:PT1M", "RRULE:" + recurrence_rule(med, card, row["timezone"]), "SUMMARY:查看安伴用药卡",
                   "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:PT0M", "DESCRIPTION:查看已核对的用药卡", "END:VALARM", "END:VEVENT"]
     return "\r\n".join(lines + ["END:VCALENDAR", ""])

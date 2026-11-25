@@ -6,30 +6,40 @@
   <meta name="theme-color" content="#e2edf4">
   <meta name="description" content="安伴，把每日用药整理进一个安心的小药盒。拍照核对，生成大字用药卡，听语音叮嘱。">
   <title>安伴 · 一周安心药盒</title>
-  <link rel="stylesheet" href="app.css?v=home-actions-1">
+  <link rel="stylesheet" href="app.css?v=dialogue-schema-8">
   <link rel="stylesheet" href="taste-motion/motion.css">
   <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
   <script type="module" src="taste-motion/motion.js"></script>
   <script defer src="catalog.js"></script>
   <script defer src="api-config.js"></script>
-  <script defer src="backend-client.js?v=medicine-cycle-1"></script>
-  <script src="schedule.js?v=medicine-cycle-1"></script>
+  <script defer src="backend-client.js?v=dialogue-schema-8"></script>
+  <script src="regimen.js?v=dialogue-schema-8"></script>
+  <script src="organizer-visuals.js?v=dialogue-schema-8"></script>
+  <script src="schedule.js?v=dialogue-schema-8"></script>
   <script defer src="pdf-ui.js?v=pdf-select-1"></script>
   <script defer src="report-knowledge.js?v=contest-1"></script>
   <script defer src="report-ui.js?v=lifestyle-summary-2"></script>
-  <script defer src="app.js?v=health-record-1"></script>
-  <script type="module" src="scene-boot.js?v=organizer-20261121"></script>
+  <script defer src="day-panel.js?v=dialogue-schema-8"></script>
+  <script defer src="app.js?v=dialogue-schema-8"></script>
+  <script type="module" src="scene-boot.js?v=dialogue-schema-8"></script>
 </head>
 <body>
   <a class="skip-link" href="#nav">进入功能导航</a>
   <main class="world" id="world" aria-label="一周安心药盒">
     <div id="scene" aria-label="可拖动旋转的七天分格药盒"></div>
+    <button id="medicineNoteAccess" class="medicine-note-access" aria-label="查看药品便利贴" hidden><span>药品清单</span></button>
     <div id="sceneFallback" class="scene-fallback" hidden aria-label="七天分格药盒"></div>
     <div id="sceneLoading" role="status"><span></span>正在打开药盒</div>
     <header class="world-header">
       <button class="brand home-button" id="homeButton" aria-label="回到药盒"><span class="brandmark" aria-hidden="true"></span><strong>安伴</strong></button>
       <div class="scene-controls"><button id="resetView" aria-label="重置药盒视角"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 10a8 8 0 1 1 1 8M4 4v6h6"/></svg></button><button id="lidToggle" aria-pressed="true">合上盒盖</button></div>
     </header>
+    <div id="organizerStage" aria-hidden="true"></div>
+    <dialog id="organizerDay" class="organizer-day" aria-labelledby="organizerDayTitle" aria-hidden="true" inert>
+      <header class="organizer-day-header"><div><p id="organizerDayDate"></p><h2 id="organizerDayTitle" tabindex="-1">当天用药</h2></div><button id="closeOrganizerDay" aria-label="收起当天用药卡">收起</button><div class="organizer-date-nav"><button id="previousOrganizerDay">前一天</button><button id="nextOrganizerDay">后一天</button></div></header>
+      <div id="organizerDayBody" class="organizer-day-body" tabindex="0" aria-label="早中晚用药安排"></div>
+      <div id="organizerDayActions" class="organizer-day-actions"></div>
+    </dialog>
     <div class="week-picker" id="weekPicker" role="group" aria-label="今天起七天的用药日期"></div>
     <div class="scene-footer" id="sceneFooter">
       <div class="scene-heading"><h1>把每一天，<br><span>照顾好。</span></h1></div>
@@ -39,7 +49,7 @@
   <div class="workspace-shade" id="workspaceShade" hidden></div>
   <section class="workspace" id="workspace" role="region" aria-labelledby="pageTitle" inert aria-hidden="true">
     <header class="workspace-header"><div><span class="workspace-mark" aria-hidden="true"></span><h2 id="pageTitle">健康对话</h2></div><button id="closeWorkspace" aria-label="收起，回到 3D 药盒">回到药盒</button></header>
-    <div class="workspace-meta"><time id="date"></time></div>
+    <div class="workspace-meta"><div id="chatTabs" class="chat-tabs" role="tablist" aria-label="对话功能"></div><time id="date"></time></div>
     <div class="page-scroll"><div class="page-content"><div id="view"></div></div></div>
     <div id="composeDock"></div>
   </section>

@@ -168,3 +168,7 @@ ANBAN_TEST_DSH=1 python3 -m unittest backend.tests.test_glm_runtime -v
 测试覆盖实际 HTTP 请求、账户隔离和 CSRF、图片真实格式、识别候选与确认分离、乐观锁、重复提交、卡片 PNG、语音回退、日历、提醒事件去重及暂停、原知识库回归。DSH 集成测试启动官方 SDK 与实际 Node 运行时，仅用本机模拟 HTTP 服务替代外部模型，检查历史传递、零工具、图片文件/内嵌路径、候选回填、超时、截断和错误处理。浏览器端另行验证完整上传→逐盒确认→刷新续接→卡片→语音→提醒，以及注册、退出和再次登录的数据恢复。
 
 当前运行方式是本地开发服务。公网部署、找回密码、跨设备同步入口与真实医学场景的识别效果验收仍需单独配置和测试。
+
+逐药服用规则保存在 Medication.regimen：frequency 为 daily / interval / weekly / unknown，interval_days 为 2–30，weekdays 为 ISO 星期 1–7；course 为 fixed / long_term / unknown，start_date 和 end_date 为 YYYY-MM-DD。未知规则可存草稿，确认时必须补齐；固定疗程含结束当天，间隔以开始日期为基准。extra_doses 最多 3 项，加首项共支持每日 4 次；展开后的卡片保留 regimen 和 daily_count。历史无 regimen 的卡继续按原有每日规则读取。药盒、服用登记、提醒队列及日历导出共同遵守逐药日期；结束时停止后续提醒，已产生的最后一次提醒仍保留正常展示窗口。
+
+用药对话核对通过 `POST /api/v1/drafts/{draft_id}/dialogue` 提交 `revision`、`medication_id`、`request_id`、`action`（start / message / confirm）和 `text`。空 medication_id 表示新增一种药，支持不上传照片的文字登记；照片候选可直接继续核对。`GET /api/v1/medication-dialogue/schema` 返回提取约束。模型仅输出带本轮原文证据的字段更新，服务端校验后生成下一问，不采用模型生成的处方或确认标记。对话及候选保存在草稿中，确认前不生成正式排程；确认按钮触发独立 confirm 操作。相对日期以 Asia/Shanghai 解释，明确的疗程天数按包含首日计算。早晚等模糊表述不转换成钟点。模型失败或版本冲突不覆盖已保存内容，手动表单仍可使用。

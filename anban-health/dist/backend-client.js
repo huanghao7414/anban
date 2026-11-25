@@ -22,7 +22,7 @@ window.AnbanAPI=(()=>{
  const ready=enabled?bootstrap():Promise.resolve(null);
  // Keep the rejection available to the UI while avoiding an unhandled promise before app.js loads.
  ready.catch(()=>{});
- const fields=d=>({phase:d.phase,index:d.index,meds:d.meds.map(m=>({id:m.id,name:m.name||'',dose:m.dose||'',time:m.time||'',meal:m.meal||'',extra_doses:m.extra_doses||[],food_notes:m.food_notes||'',ok:!!m.ok}))});
+ const fields=d=>({phase:d.phase,index:d.index,meds:d.meds.map(m=>({id:m.id,name:m.name||'',dose:m.dose||'',time:m.time||'',meal:m.meal||'',extra_doses:m.extra_doses||[],food_notes:m.food_notes||'',regimen:m.regimen||null,ok:!!m.ok}))});
  function queueDraft(d){if(!enabled||!d?.id)return;pending={id:d.id,data:fields(d)};clearTimeout(timer);timer=setTimeout(()=>flushDraft().catch(e=>window.dispatchEvent(new CustomEvent('anban:api-error',{detail:e.message}))),700);}
  function flushDraft(d){
    if(d?.id)pending={id:d.id,data:fields(d)};
@@ -37,6 +37,11 @@ window.AnbanAPI=(()=>{
    async photo(data_url,kind='medicine'){return raw('/uploads','POST',{data_url,kind});},
    async attach(draft,upload,medicationId){await flushDraft();const query=medicationId?'?medication_id='+encodeURIComponent(medicationId):'';const d=await raw('/drafts/'+draft.id+'/uploads/'+upload.id+query,'POST',{});versions.set(d.id,d.revision);return d;},
    async attachDocument(draft,documentId){await flushDraft();const d=await raw('/drafts/'+draft.id+'/documents/'+documentId,'POST',{});versions.set(d.id,d.revision);return d;},
+   async medicationTurn(draft,medicationId,action,text){
+     await flushDraft(draft);
+     const result=await raw('/drafts/'+draft.id+'/dialogue','POST',{revision:versions.get(draft.id),medication_id:medicationId,action,text,request_id:crypto.randomUUID()});
+     versions.set(result.draft.id,result.draft.revision);return result;
+   },
    async generate(draft,cycle){await flushDraft(draft);return raw('/cards','POST',{draft_id:draft.id,revision:versions.get(draft.id),...cycle});},
    async setReminders(card,times){const r=await raw('/reminders','POST',{card_id:card.id,times,timezone:'Asia/Shanghai'});reminders=r.items;return r;},
    async toggleReminder(id,enabled){await raw('/reminders/'+id,'PATCH',{enabled});reminders=(await raw('/reminders')).items;},

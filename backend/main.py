@@ -32,6 +32,8 @@ from .pdf_service import document_view, pdf_source, register_pdf_routes, report_
 from .services import (LEGAL, REMINDER_WINDOW, REPORT_MEANING, calendar_ics, card_png, collect_due,
                        decode_photo, dose_needs_unit, doses, local_audio, narration, next_occurrence, validate_med)
 from .store import Store, dump, new_id
+from .regimen import active_on, next_med_occurrence
+from .medication_dialogue import register_dialogue
 from .report_lookup import explain_indicator
 from .reminder_voice import TEXT as REMINDER_TEXT, qwen_audio, reminder_audio
 
@@ -86,7 +88,7 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
             rows = db.execute(
                 "SELECT r.card_id,r.med_index,c.data FROM reminders r JOIN cards c ON c.id=r.card_id "
                 "LEFT JOIN reminder_audio_cache a ON a.card_id=r.card_id AND a.med_index=r.med_index "
-                "WHERE r.enabled=1 AND a.card_id IS NULL AND (? IS NULL OR r.card_id=?)",
+                "WHERE r.enabled=1 AND a.card_id IS NULL AND (? IS NULL OR r.card_id=?) ORDER BY r.card_id,r.med_index",
                 (card_id, card_id),
             ).fetchall()
         for row in rows:
@@ -464,16 +466,21 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
                 raise HTTPException(422, "药盒记录无效，请重新打开草稿。")
             meds = []
             for med in body.meds:
-                item = med.model_dump()
+                item = med.model_dump(mode="json")
+                if existing[med.id].get("regimen") and item["regimen"] is None:
+                    raise HTTPException(422, "请保留并核对这盒药的频率和期限。")
                 if item["ok"]:
                     validate_med(item)
                 old = existing[med.id]
                 changed = any(old.get(k, default) != item[k] for k, default in (
                     ("name", ""), ("dose", ""), ("time", ""), ("meal", ""),
-                    ("extra_doses", []), ("food_notes", ""),
+                    ("extra_doses", []), ("food_notes", ""), ("regimen", None),
                 ))
                 confirmed_at = (time.time() if changed or not old.get("ok") else old.get("confirmed_at", time.time())) if item["ok"] else None
-                meds.append({**old, **item, "confirmed_at": confirmed_at})
+                merged = {**old, **item, "confirmed_at": confirmed_at}
+                if changed:
+                    merged.pop("dialogue", None)
+                meds.append(merged)
             if body.phase in {"review", "summary"} and not meds:
                 raise HTTPException(422, "至少添加一种药。")
             if body.phase == "summary" and any(not m["ok"] for m in meds):
@@ -627,8 +634,8 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
                 raise HTTPException(422, "请选择真实用药卡上的一项用药。")
             key = (uid, card_id, med_index, day)
             if body.taken:
-                if (card.get("start_date") and day < card["start_date"]) or (card.get("end_date") and day > card["end_date"]):
-                    raise HTTPException(422, "今天不在这张用药卡的服药周期内。")
+                if not active_on(card["meds"][med_index], day, card):
+                    raise HTTPException(422, "今天不在这项用药的服用日期内。")
                 db.execute("INSERT OR IGNORE INTO medication_log VALUES(?,?,?,?,?)", (*key, now.timestamp()))
             else:
                 db.execute("DELETE FROM medication_log WHERE user_id=? AND card_id=? AND med_index=? AND day=?", key)
@@ -668,6 +675,7 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
             return {"items": sorted(items, key=lambda i: i.get("created", 0), reverse=True)[:20]}
 
     register_pdf_routes(app, store, current, limit, analyze, report, locks)
+    register_dialogue(app, store, current, provider, locks, limit)
 
     @app.get("/api/v1/reminders", tags=["提醒"])
     def reminders(auth=Depends(current)):
@@ -690,9 +698,11 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
             db.execute("UPDATE reminders SET enabled=0 WHERE user_id=?", (auth["user_id"],))
             db.execute("UPDATE reminder_events SET acknowledged=1 WHERE user_id=?", (auth["user_id"],))
             for index, at in enumerate(body.times):
-                db.execute("""INSERT INTO reminders VALUES(?,?,?,?,?,?,1,?,?) ON CONFLICT(user_id,card_id,med_index)
-                           DO UPDATE SET at=excluded.at,timezone=excluded.timezone,enabled=1,next_at=excluded.next_at""",
-                           (new_id(), auth["user_id"], body.card_id, index, at, body.timezone, next_occurrence(at, body.timezone, time.time()), time.time()))
+                now = time.time()
+                upcoming = next_med_occurrence(at, body.timezone, now, card["meds"][index], card)
+                db.execute("""INSERT INTO reminders VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,card_id,med_index)
+                           DO UPDATE SET at=excluded.at,timezone=excluded.timezone,enabled=excluded.enabled,next_at=excluded.next_at""",
+                           (new_id(), auth["user_id"], body.card_id, index, at, body.timezone, int(upcoming is not None), upcoming or now, now))
         background.add_task(prepare_reminder_voices, body.card_id)
         return reminders(auth)
 
@@ -700,7 +710,11 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
     def reminder_toggle(reminder_id: str, body: ReminderUpdate, background: BackgroundTasks, auth=Depends(current)):
         with store.db() as db:
             row = store.owned(db, "reminders", reminder_id, auth["user_id"])
-            db.execute("UPDATE reminders SET enabled=?,next_at=? WHERE id=?", (int(body.enabled), next_occurrence(row["at"], row["timezone"], time.time()), reminder_id))
+            card = store.card(store.owned(db, "cards", row["card_id"], auth["user_id"]))
+            upcoming = next_med_occurrence(row["at"], row["timezone"], time.time(), card["meds"][row["med_index"]], card)
+            if body.enabled and upcoming is None:
+                raise HTTPException(422, "这项用药已经到期，请先核对新的用药安排。")
+            db.execute("UPDATE reminders SET enabled=?,next_at=? WHERE id=?", (int(body.enabled), upcoming or time.time(), reminder_id))
             if not body.enabled:
                 db.execute("UPDATE reminder_events SET acknowledged=1 WHERE reminder_id=?", (reminder_id,))
         if body.enabled:
@@ -710,7 +724,7 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
     @app.get("/api/v1/reminders/calendar.ics", tags=["提醒"])
     def calendar(auth=Depends(current)):
         with store.db() as db:
-            rows = db.execute("SELECT * FROM reminders WHERE user_id=? AND enabled=1 ORDER BY at", (auth["user_id"],)).fetchall()
+            rows = db.execute("SELECT r.*,c.data FROM reminders r JOIN cards c ON c.id=r.card_id WHERE r.user_id=? AND r.enabled=1 ORDER BY r.at", (auth["user_id"],)).fetchall()
         return Response(calendar_ics(rows), media_type="text/calendar", headers={"Content-Disposition": 'attachment; filename="anban-reminders.ics"'})
 
     @app.get("/api/v1/reminder-events", tags=["提醒"])
@@ -722,18 +736,21 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
                 "a.card_id IS NOT NULL AS voice_ready FROM reminder_events e JOIN reminders r ON e.reminder_id=r.id "
                 "JOIN cards c ON c.id=r.card_id LEFT JOIN reminder_audio_cache a "
                 "ON a.card_id=r.card_id AND a.med_index=r.med_index "
-                "WHERE e.user_id=? AND e.acknowledged=0 AND r.enabled=1 AND e.scheduled>=? "
+                "WHERE e.user_id=? AND e.acknowledged=0 AND e.scheduled>=? "
                 "AND NOT EXISTS (SELECT 1 FROM reminder_presentations p WHERE p.event_id=e.id) ORDER BY e.scheduled",
                 (auth["user_id"], time.time() - REMINDER_WINDOW),
             ).fetchall()
         items = []
         for row in rows:
             item = dict(row)
-            meds = json.loads(item.pop("data"))["meds"]
+            card = json.loads(item.pop("data"))
+            meds = card["meds"]
             index = item.pop("med_index")
             if not 0 <= index < len(meds):
                 continue
             med = meds[index]
+            if not active_on(med, datetime.fromtimestamp(row["scheduled"], ZoneInfo("Asia/Shanghai")).date(), card):
+                continue
             item["medicine"] = med["name"]
             item["voice_text"] = reminder_text(med)
             items.append(item)
@@ -745,7 +762,7 @@ def create_app(data_dir=None, providers=None, kb_store=None, allowed_hosts=None)
             inserted = db.execute(
                 "INSERT OR IGNORE INTO reminder_presentations SELECT e.id FROM reminder_events e "
                 "JOIN reminders r ON r.id=e.reminder_id WHERE e.id=? AND e.user_id=? "
-                "AND e.acknowledged=0 AND r.enabled=1 AND e.scheduled>=?",
+                "AND e.acknowledged=0 AND e.scheduled>=?",
                 (event_id, auth["user_id"], time.time() - REMINDER_WINDOW),
             ).rowcount
         return {"present": bool(inserted)}

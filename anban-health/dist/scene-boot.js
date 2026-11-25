@@ -2,6 +2,7 @@ const colors=['#d6e7c9','#d9e6f1','#f2d5ce','#f4e9b9','#d5e8d9','#cbdfee','#ead4
 const schedule=window.AnbanSchedule,picker=document.getElementById('weekPicker');
 const primary=document.querySelector('.hero-action'),fallbackEl=document.getElementById('sceneFallback');
 let fallbackActive=false,lastDates='';
+document.getElementById('medicineNoteAccess').onclick=()=>window.dispatchEvent(new Event('anban:open-medicine-note'));
 // Date controls and the accessible fallback use the same selection as the 3D scene.
 function openDay(){
   const {selection}=schedule.getSnapshot();
@@ -22,10 +23,11 @@ function render({week,selection,ready}){
   }
 }
 schedule.subscribe(render);
-picker.addEventListener('click',e=>{const b=e.target.closest('[data-day]');if(b)schedule.select(schedule.getSnapshot().week.days[+b.dataset.day].date);});
+picker.addEventListener('click',e=>{const b=e.target.closest('[data-day]');if(b){schedule.select(schedule.getSnapshot().week.days[+b.dataset.day].date);openDay();}});
 primary.addEventListener('click',openDay);
 fallbackEl.addEventListener('click',e=>{const b=e.target.closest('[data-fallback-day]');if(!b)return;schedule.select(schedule.getSnapshot().week.days[+b.dataset.fallbackDay].date,b.dataset.period);openDay();});
 function fallback(){
+  const note=document.getElementById('medicineNoteAccess');note.hidden=false;note.classList.add('is-fallback');
   fallbackActive=true;render(schedule.getSnapshot());
   fallbackEl.hidden=false;document.getElementById('sceneLoading').hidden=true;
   document.getElementById('scene').hidden=true;
@@ -33,4 +35,4 @@ function fallback(){
   document.getElementById('resetView').hidden=true;
 }
 window.addEventListener('anban:gl-lost',fallback,{once:true});
-try{const scene=await import('./scene.js?v=organizer-20261121');await scene.initScene();}catch(error){console.warn('3D view unavailable; using accessible organizer.',error);fallback();}
+try{const scene=await import('./scene.js?v=sticky-pills-6');await scene.initScene();}catch(error){console.warn('3D view unavailable; using accessible organizer.',error);fallback();}

@@ -41,7 +41,8 @@ CREATE INDEX IF NOT EXISTS medication_log_owner ON medication_log(user_id,record
 CREATE TABLE IF NOT EXISTS pdf_documents(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL,filename TEXT NOT NULL,content BLOB NOT NULL,page_count INTEGER NOT NULL,selected TEXT NOT NULL DEFAULT '[]',created REAL NOT NULL,updated REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS pdf_pages(document_id TEXT NOT NULL REFERENCES pdf_documents(id),page INTEGER NOT NULL,thumbnail BLOB NOT NULL,image BLOB,text TEXT NOT NULL DEFAULT '',upload_id TEXT UNIQUE REFERENCES uploads(id),error TEXT,PRIMARY KEY(document_id,page));
 CREATE INDEX IF NOT EXISTS pdf_owner ON pdf_documents(user_id,updated);
-PRAGMA user_version=2;
+CREATE TABLE IF NOT EXISTS medication_dialogue_requests(user_id TEXT NOT NULL REFERENCES users(id),draft_id TEXT NOT NULL REFERENCES drafts(id),request_id TEXT NOT NULL,signature TEXT NOT NULL,response TEXT NOT NULL,created REAL NOT NULL,PRIMARY KEY(user_id,draft_id,request_id));
+PRAGMA user_version=3;
 """
 
 

@@ -1,6 +1,7 @@
 'use strict';
 const api=window.AnbanAPI;
 const schedule=window.AnbanSchedule;
+const regimen=window.AnbanRegimen;
 let backendReady=!api?.enabled,networkBusy=false,networkStatus='';
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -23,7 +24,7 @@ const paths={
 const ico=n=>'<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+paths[n]+'</svg>';
 const b=(a,t,cl='',icon='')=>'<button type="button" data-a="'+a+'" class="btn '+cl+'">'+(icon?ico(icon):'')+esc(t)+'</button>';
 const scenes={card:['做用药卡','card',''],report:['看体检报告','report','sage'],drug:['查药品资料','med','sand'],alarm:['设定时提醒','bell','rose']};
-const tabs={chat:['对话','chat','健康对话'],tools:['功能','grid','健康功能'],me:['个人','user','个人画像']};
+const tabs={chat:['对话','chat','健康对话'],me:['个人','user','个人画像']};
 const key='anban.prototype.v1',legal='不替代执业医师诊断与处方调整';
 const sample=[{name:'示例药甲',dose:'1片',time:'08:00',meal:'早餐后'},{name:'示例药乙',dose:'1粒',time:'18:00',meal:'随晚餐'}];
 const blankMed=()=>({name:'',dose:'',time:'',meal:''});
@@ -68,12 +69,12 @@ function animateSheet() {
 function goto(t,scene) {
   stopVoice();
   const changed=tab!==t || (scene && state.scene!==scene);
-  tab=t;history.replaceState(null,'','#'+t);
+  tab=t==='tools'?'chat':t;history.replaceState(null,'','#'+t);
   if(scene){state.scene=scene;state.note='';}
   save();render();openWorkspace();positionChat();
   if(changed)animateSheet();
 }
-const prompts={card:'请帮我做一张用药卡。',report:'我想看懂体检报告。',drug:'帮我查药品资料。',alarm:'我想设一个每日提醒。'};
+const prompts={card:'请帮我做一张用药卡。',report:'我想看懂体检报告。',drug:'帮我查药品资料。',alarm:'我想按用药安排设置提醒。'};
 function resetFeature(s){
  state.note='';
  if(s==='report'){
@@ -112,7 +113,6 @@ const titleCard=c=>(c.demo?'示例用药卡':(c.person?c.person+'的用药卡':'
 const currentMed=()=>state.draft.meds[state.draft.index];
 const progress=n=>'<div class="stepbar" aria-hidden="true">'+[1,2,3].map(i=>'<i class="'+(i<=n?'on':'')+'"></i>').join('')+'</div>';
 const bubble=t=>'<div class="dialogline"><span class="avatar">'+ico('chat')+'</span><p class="bubble">'+esc(t)+'</p></div>';
-const toolTiles=()=>'<div class="actions">'+Object.entries(scenes).map(([s,[t,i,col]])=>'<button data-a="scene-'+s+'" class="tile '+(s==='card'?'picked':'')+'"><span class="badgeicon '+col+'">'+ico(i)+'</span>'+t+'</button>').join('')+'</div>';
 const emptyLabel=()=>state.draft&&state.draft.meds.length?'继续核对药盒':'拍药盒做卡';
 function composer() {
   return '<form id="composer" class="composer"><button type="button" data-a="dictate" aria-label="说句话">'+ico('mic')+'</button>'+
@@ -125,7 +125,6 @@ function home() {
   return '<div class="starter"><button class="photo-action" data-a="'+(state.draft?.meds.length?'resume-card':'scene-card')+'"><img src="medicine-still-life.jpg"  alt=""><span>'+ico('camera')+emptyLabel()+'</span></button>'+
     b('scene-report','看体检报告','','report')+(latest?b('latest','打开上次的卡','','card'):'')+'</div>';
 }
-function toolsPage() {return '<div class="grid">'+toolTiles()+'</div>';}
 const portraitFields=[
   ['name','称呼'],['age','年龄'],['health','健康状况'],['allergy','过敏史'],['diet','饮食忌口']
 ];
@@ -138,7 +137,7 @@ function profile() {
     esc(p.name||'我的健康档案')+'</h2><p>'+esc(api?.enabled?(api.account?.username||'本机访客'):'本机访客')+'</p></div></div>'+b('profile-edit','编辑画像')+'</div><dl>'+detail+'</dl></section>'+
     (api?.enabled?'<div class="buttons">'+(api.account?.username?b('account-logout','退出登录'):b('account-login','登录')+b('account-register','注册账户'))+'</div>':'')+'<details class="panel personal-records"><summary>我的用药卡（'+state.cards.length+'）</summary><div class="stack">'+
     (cards||b('scene-card','做第一张用药卡'))+'</div></details><details class="panel personal-records"><summary>提醒管理</summary><p>'+
-    esc(state.reminder?'已设置每日提醒':'还没有设置提醒')+'</p>'+(api?.enabled?api.reminders.map(r=>'<div class="rowline row"><strong>'+esc(r.at)+'</strong>'+b('reminder-'+r.id,r.enabled?'暂停提醒':'开启提醒')+'</div>').join(''):'')+b('scene-alarm','管理提醒','','bell')+'</details></div>';
+    esc(state.reminder?'已设置用药提醒':'还没有设置提醒')+'</p>'+(api?.enabled?api.reminders.map(r=>'<div class="rowline row"><strong>'+esc(r.at)+'</strong>'+b('reminder-'+r.id,r.enabled?'暂停提醒':'开启提醒')+'</div>').join(''):'')+b('scene-alarm','管理提醒','','bell')+'</details></div>';
 }
 function sceneShell(title,body) {
   return '<section class="stack active-task" id="activeTask" aria-label="'+esc(title)+'"><div class="flowhead"><span class="scene">'+esc(title)+'</span>'+b('back-home','收起任务')+'</div>'+body+'</section>';
@@ -152,7 +151,7 @@ function transcript() {
   }).join('')+'</div>';
 }
 const mockBox=i=>'<span class="demo-box '+(i%2?'warm':'')+'">'+esc(sample[i%2].name)+'</span>';
-function source(m,i){return m.photo?'<img src="'+esc(m.photo)+'" alt="第 '+(i+1)+' 盒药的原图">':mockBox(m.exampleIndex??i);}
+function source(m,i){return m.photo?'<img src="'+esc(m.photo)+'" alt="第 '+(i+1)+' 盒药的原图">':m.exampleIndex!=null?mockBox(m.exampleIndex):'<span class="text-medication">文字登记</span>';}
 let supplementMedicationId = "";
 function supplementPreviews(m){
  const photos=m?.extra_photos||[];
@@ -160,12 +159,51 @@ function supplementPreviews(m){
  return '<span>已补拍 '+photos.length+' 张</span>'+photos.map((p,i)=>
   '<img src="'+esc(p.url)+'" alt="补拍照片 '+(i+1)+'" width="64" height="64" loading="lazy">').join('');
 }
+let medicationEntryMode='conversation';
+function medicationDialogueView(m,d){
+ const flow=m.dialogue,ready=!!flow?.ready;
+ const transcript=(flow?.turns||[]).map(t=>t.role==='user'?'<div class="userline">'+esc(t.text)+'</div>':bubble(t.text)).join('');
+ const f=flow?.facts,rows=f?.doses||[];
+ const summary=f?'<article class="medication-review-summary"><h3>'+esc(f.name||'药名待补充')+'</h3>'+rows.map((r,i)=>r.time||r.dose?'<p><strong>第 '+(i+1)+' 次</strong> '+esc([r.time,r.dose,r.meal].filter(Boolean).join(' · '))+'</p>':'').join('')+
+  (f.frequency&&f.frequency!=='unknown'?'<p>'+esc(f.frequency==='daily'?'每天服用':f.frequency==='interval'?'每 '+(f.interval_days||'？')+' 天服用':'每周'+(f.weekdays||[]).map(n=>'一二三四五六日'[n-1]).join('、')+'服用')+(f.daily_count?' · 服用当天 '+f.daily_count+' 次':'')+'</p>':'')+
+  (f.start_date?'<p>'+esc(f.start_date)+(f.end_date?' 至 '+esc(f.end_date):f.course==='long_term'?' 起长期服用':' 起')+'</p>':'')+
+  (f.duration_days&&!f.start_date?'<p>疗程 '+f.duration_days+' 天</p>':'')+(f.food_notes?'<p>'+esc(f.food_notes)+'</p>':'')+'</article>':'';
+ return sceneShell('核对第 '+(d.index+1)+' 盒', '<section class="workflow medication-dialogue"><div class="medication-chat-heading">'+(m.photo?'<img src="'+esc(m.photo)+'" alt="当前药盒原图">':'')+'<h2>'+esc(m.name||'登记一种药')+'</h2><span>'+(d.index+1)+' / '+d.meds.length+'</span></div>'+
+  '<div class="medication-turns" role="log" aria-label="这盒药的核对对话">'+transcript+'</div>'+
+  (flow?'<div id="medicationQuestion">'+(ready?summary:'<details class="medication-collected"><summary>已整理的信息</summary>'+summary+'</details>')+
+   '<div class="buttons">'+(ready?b('dialogue-confirm','确认这盒','primary','check'):(flow.choices||[]).map((text,i)=>b('dialogue-choice-'+i,text)).join(''))+'</div></div>':bubble('告诉我这盒药的吃法，我们一起核对。')+b('dialogue-start','开始对话核对','primary'))+
+  (networkStatus?'<p role="status">'+esc(networkStatus)+'</p>':'')+'<div class="buttons">'+b('dialogue-manual','手动修改')+b('later','稍后继续')+'</div></section>');
+}
+function positionMedicationDialogue(){
+ requestAnimationFrame(()=>{const panel=$('medicationQuestion');if(panel)panel.scrollIntoView({block:'end',behavior:'instant'});});
+}
+async function medicationTurn(action,text='',newMedicine=false){
+ if(!api?.enabled||!backendReady||networkBusy)return toast('请等待本机服务准备好。');
+ const draft=state.draft;if(!draft)return;
+ const medicationId=newMedicine?'':draft.meds[draft.index]?.id||'',account=api.account;
+ networkBusy=true;networkStatus=action==='message'?'正在整理您说的吃法…':action==='confirm'?'正在保存这盒药…':'正在准备核对…';
+ render();positionMedicationDialogue();
+ try{
+  const result=await api.medicationTurn(draft,medicationId,action,text);
+  if(account!==api.account||state.draft?.id!==draft.id)return;
+  if($('toast').textContent===medicationTurn.lastError)$('toast').hidden=true;
+  state.draft=result.draft;medicationEntryMode='conversation';state.scene='card';
+  if(action==='confirm'&&state.draft.phase==='review'&&!state.draft.meds[state.draft.index].dialogue){
+   const next=await api.medicationTurn(state.draft,state.draft.meds[state.draft.index].id,'start','');
+   if(account!==api.account)return;state.draft=next.draft;
+  }
+  save();
+ }catch(e){if(account===api.account){if(text)$('utterance').value=text;medicationTurn.lastError=e.message;toast(e.message);}}
+ finally{networkBusy=false;networkStatus='';render();positionMedicationDialogue();}
+}
+
 function cardTask(){
  const d=state.draft||blankDraft(),vision=api?.enabled&&api.health?.capabilities.vision;
  const draftActions=d.meds.length?'<div class="row rowline"><p>草稿已保存，内有 '+d.meds.length+' 盒药。</p>'+b('draft-new','重新开始')+'</div>':'';
  if(d.phase==='photos'){
  const slots=Array.from({length:Math.max(1,d.meds.length)},(_,i)=>{const m=d.meds[i];return '<div class="slot">'+(m?source(m,i):ico('camera'))+'<span>第 '+(i+1)+' 盒'+(m?'':' · 待拍')+'</span>'+(m?'<strong class="slot-med-name">'+esc(m.name||m.recognition?.fields?.name||'药名待核对')+'</strong>':'')+supplementPreviews(m)+(m?(d.demo?'':(api?.enabled?b('supplement-'+i,'补拍同一种药'):'')+b('remove-'+i,'移除')):'')+'</div>';}).join('');
- return sceneShell('做用药卡',bubble('一盒药也可以制卡。选多张照片时，每张会添加一种药；同一种药的其他角度，请用「补拍同一种药」。')+'<section class="workflow">'+progress(1)+draftActions+(!vision&&!d.demo?'<p role="status">自动识别暂不可用。仍可保存照片，稍后核对或手动填写。</p>':'')+'<div class="row"><h2>添加药盒照片</h2><span>'+d.meds.length+' / 5 盒</span></div><div class="slots">'+slots+'</div><div class="buttons">'+(d.demo?b('real-photos','改用自己的照片'):b('camera','拍一盒','primary','camera')+b('album','选照片','','photo')+(api?.enabled?b('medicine-pdf','上传说明书 PDF','','report'):''))+(!d.meds.length?b('demo','用两盒示例体验'):'')+'</div>'+(d.meds.length?b('review-start','逐盒核对','primary','check'):'')+'</section>'+(api?.enabled&&!d.demo?pdfPicker('medicine'):''));}
+ return sceneShell('做用药卡',bubble('一盒药也可以制卡。选多张照片时，每张会添加一种药；同一种药的其他角度，请用「补拍同一种药」。')+'<section class="workflow">'+progress(1)+draftActions+(!vision&&!d.demo?'<p role="status">自动识别暂不可用。仍可保存照片，稍后核对或手动填写。</p>':'')+'<div class="row"><h2>添加药盒照片</h2><span>'+d.meds.length+' / 5 盒</span></div><div class="slots">'+slots+'</div><div class="buttons">'+(d.demo?b('real-photos','改用自己的照片'):b('camera','拍一盒','primary','camera')+b('album','选照片','','photo')+(api?.enabled?b('medicine-pdf','上传说明书 PDF','','report'):''))+(!d.meds.length?(api?.enabled?b('dialogue-add','直接说药名和吃法','','chat'):'')+b('demo','用两盒示例体验'):'')+'</div>'+(d.meds.length?b('review-start',api?.enabled?'开始对话核对':'逐盒核对','primary','chat'):'')+'</section>'+(api?.enabled&&!d.demo?pdfPicker('medicine'):''));}
+ if(d.phase==='review'&&api?.enabled&&medicationEntryMode==='conversation')return medicationDialogueView(currentMed(),d);
  if(d.phase==='review'){
  const i=d.index,m=currentMed();const fields=medicationReviewFields(m);
  const photo='<figure class="photo">'+source(m,i)+'<figcaption>'+(d.demo?'示例药盒':m.document_id?'说明书原页':'药盒原图')+' · 第 '+(i+1)+' 盒</figcaption>'+(m.sources?'<div class="buttons">'+m.sources.map(p=>b('med-page-'+i+'-'+p.page,'查看第 '+p.page+' 页')).join('')+'</div>':'')+'</figure>';
@@ -180,11 +218,9 @@ function cardTask(){
  const notice=d.demo?'':!hasRecognition&&!vision?'自动识别暂不可用。原图还在，可以按药袋或医嘱填写，也可以稍后再核对。':
   !hasRecognition?'这些照片还没有可用的识别结果。可以补拍清楚的药名和药袋，或对照原图填写。':
   recognized.some(r=>r.fields?.uncertain)?'部分文字看不清，请对照原图核对。':'';
- return sceneShell('逐盒核对',bubble(d.demo?'这是虚构示例，请逐盒核对示例吃法。':hasRecognition?'请对照药袋或医嘱核对已填的信息，空白项可按医嘱补充。':'您可以对照下面的原图核对。')+'<form id="reviewForm" class="workflow">'+progress(2)+draftActions+'<h2>核对第 '+(i+1)+' 盒，共 '+d.meds.length+' 盒</h2>'+photo+supplemental+(evidence.length?'<div class="rowline"><h3>照片识别结果</h3>'+[...new Set(evidence)].join('')+'</div>':'')+(notice?'<p role="status">'+esc(notice)+'</p>':'')+fields+'<p class="error" id="reviewError" role="alert" hidden></p><div class="buttons">'+b('review-prev',i?'上一盒':'返回照片')+b('later','稍后再核对')+'<button class="primary">'+(i+1===d.meds.length?'确认这盒，查看汇总':'确认这盒，核对下一盒')+'</button></div></form>',false);}
- return sceneShell('用药卡汇总',bubble('这几盒药都已核对。再看一遍，就可以生成大字卡和语音。')+'<section class="workflow">'+progress(3)+draftActions+'<h2>已核对 '+d.meds.length+' 盒药</h2>'+d.meds.map((m,i)=>'<div class="rowline row"><div><strong>'+esc(m.name)+'</strong><p>'+esc(medDoses(m).map(item=>[item.time,item.dose,item.meal].filter(Boolean).join(' · ')).join(' / ')+(m.food_notes?' ｜ 食物注意：'+m.food_notes:''))+'</p></div>'+b('edit-'+i,'修改')+'</div>').join('')+
- '<form id="cardCycleForm" class="stack"><h3>服药周期</h3><p>首页药盒按这段日期显示此卡的每日安排，包含开始和结束当天。</p><div class="fields">'+
- field('start_date','开始日期',schedule.todayISO(),'date')+field('end_date','结束日期（留空表示持续）','','date')+
- '</div><button class="primary">生成大字卡和语音</button></form></section>');}
+ return sceneShell('逐盒核对',bubble(d.demo?'这是虚构示例，请逐盒核对示例吃法。':hasRecognition?'请对照药袋或医嘱核对已填的信息，空白项可按医嘱补充。':'您可以对照下面的原图核对。')+'<form id="reviewForm" class="workflow">'+progress(2)+draftActions+'<h2>核对第 '+(i+1)+' 盒，共 '+d.meds.length+' 盒</h2>'+photo+supplemental+(evidence.length?'<div class="rowline"><h3>照片识别结果</h3>'+[...new Set(evidence)].join('')+'</div>':'')+(notice?'<p role="status">'+esc(notice)+'</p>':'')+fields+'<p class="error" id="reviewError" role="alert" hidden></p><div class="buttons">'+b('review-prev',i?'上一盒':'返回照片')+b('later','稍后再核对')+b('dialogue-start','改用对话')+'<button class="primary">'+(i+1===d.meds.length?'确认这盒，查看汇总':'确认这盒，核对下一盒')+'</button></div></form>',false);}
+ return sceneShell('用药卡汇总',bubble('这几盒药都已核对。再看一遍，就可以生成大字卡和语音。')+'<section class="workflow">'+progress(3)+draftActions+'<h2>已核对 '+d.meds.length+' 盒药</h2>'+d.meds.map((m,i)=>'<div class="rowline row"><div><strong>'+esc(m.name)+'</strong><p>'+esc(medDoses(m).map(item=>[item.time,item.dose,item.meal].filter(Boolean).join(' · ')).join(' / ')+(m.food_notes?' ｜ 食物注意：'+m.food_notes:''))+'</p><p>'+esc(regimen.label(m))+'</p></div>'+b('edit-'+i,'修改')+'</div>').join('')+
+ '<form id="cardCycleForm" class="stack"><button class="primary">生成大字卡和语音</button></form>'+(api?.enabled&&d.meds.length<5?b('dialogue-add','再登记一种药','','plus'):'')+'</section>');}
 function doseSuggestion(m){
  const records=[m.recognition,...(m.extra_photos||[]).map(p=>p.recognition)].map(r=>r?.fields||{});
  const personal=records.map(f=>f.patient_directions).filter(Boolean);
@@ -200,15 +236,61 @@ function doseSuggestion(m){
  }
  return suggested.size===1?{dose:[...suggested][0],source:personal.length?'个人医嘱原文':'包装或说明书原文'}:null;
 }
+const chatFeatures=[['home','聊一聊'],['card','录入用药'],['report','体检报告'],['drug','药品知识'],['alarm','定时提醒']];
+function renderChatTabs(){
+ const active=['result','card'].includes(state.scene)?'card':state.scene==='schedule'?'alarm':chatFeatures.some(([s])=>s===state.scene)?state.scene:'home';
+ $('chatTabs').hidden=tab!=='chat';$('date').hidden=tab==='chat';
+ $('chatTabs').innerHTML=chatFeatures.map(([s,label])=>'<button type="button" role="tab" id="chat-tab-'+s+'" data-a="chat-tab-'+s+'" aria-controls="view" aria-selected="'+(s===active)+'" tabindex="'+(s===active?0:-1)+'">'+label+'</button>').join('');
+ $('view').setAttribute('role',tab==='chat'?'tabpanel':'region');$('view').setAttribute('aria-labelledby',tab==='chat'?'chat-tab-'+active:'pageTitle');
+}
+async function switchChatTab(s){
+ if(!chatFeatures.some(([id])=>id===s))return;
+ if(s==='card'&&!state.draft){
+  if(api?.enabled){networkBusy=true;try{state.draft=await api.createDraft();}catch(e){return toast(e.message);}finally{networkBusy=false;}}
+  else state.draft=blankDraft();
+ }
+ goto('chat',s);
+ const target=$('chat-tab-'+s);target?.focus({preventScroll:true});target?.scrollIntoView({block:'nearest',inline:'nearest'});
+}
+document.addEventListener('keydown',e=>{
+ if(e.target.getAttribute('role')!=='tab'||!e.target.closest('#chatTabs')||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
+ e.preventDefault();const buttons=[...$('chatTabs').querySelectorAll('[role=tab]')],i=buttons.indexOf(e.target);
+ const next=e.key==='Home'?0:e.key==='End'?buttons.length-1:(i+(e.key==='ArrowRight'?1:buttons.length-1))%buttons.length;
+ buttons[next].focus();buttons[next].click();
+});
+function regimenFields(r){
+ const select=(name,label,options,value)=>'<label>'+label+'<select name="'+name+'" id="f-'+name+'">'+options.map(([id,title])=>'<option value="'+id+'" '+(id===value?'selected':'')+'>'+title+'</option>').join('')+'</select></label>';
+ return '<section class="regimen-fields">'+
+ select('frequency','服用频率',[['unknown','请选择频率'],['daily','每天'],['interval','每隔几天'],['weekly','每周指定日期']],r.frequency)+
+ '<fieldset id="regimenInterval" '+(r.frequency!=='interval'?'hidden disabled':'')+'><label>每几天服用<input type="number" id="f-interval_days" name="interval_days" min="2" max="30" value="'+r.interval_days+'"></label></fieldset>'+
+ '<fieldset id="regimenWeekdays" '+(r.frequency!=='weekly'?'hidden disabled':'')+'><legend>每周哪几天</legend><div class="weekday-choices">'+[1,2,3,4,5,6,7].map(d=>'<label><input type="checkbox" name="weekday" value="'+d+'" '+(r.weekdays.includes(d)?'checked':'')+'><span>周'+'一二三四五六日'[d-1]+'</span></label>').join('')+'</div></fieldset>'+
+ select('course','使用期限',[['unknown','请选择期限'],['fixed','固定疗程'],['long_term','遵医嘱长期服用']],r.course)+
+ '<div class="fields">'+field('start_date','开始日期',r.start_date||'','date')+'<label id="regimenEnd" '+(r.course!=='fixed'?'hidden':'')+'>结束日期<input name="end_date" id="f-end_date" type="date" value="'+esc(r.end_date||'')+'" '+(r.course!=='fixed'?'disabled':'')+'></label></div></section>';
+}
+function syncRegimenFields(){
+ const f=$('f-frequency').value,c=$('f-course').value;
+ $('regimenInterval').hidden=$('regimenInterval').disabled=f!=='interval';
+ $('regimenWeekdays').hidden=$('regimenWeekdays').disabled=f!=='weekly';
+ $('regimenEnd').hidden=$('f-end_date').disabled=c!=='fixed';
+ $('f-end_date').min=$('f-start_date').value;
+}
+function readReview(form,m){
+ const data=new FormData(form),f=Object.fromEntries(data),count=Number($('doseCount').value);
+ return {...m,name:f.name||'',dose:f.dose||'',time:f.time||'',meal:f.meal||'',food_notes:f.food_notes||'',
+  extra_doses:Array.from({length:count-1},(_,i)=>({time:f['extraTime'+i]||'',dose:f['extraDose'+i]||'',meal:f['extraMeal'+i]||''})),
+  regimen:{frequency:f.frequency,interval_days:Number(f.interval_days||2),weekdays:data.getAll('weekday').map(Number).sort((a,b)=>a-b),course:f.course,start_date:f.start_date||null,end_date:f.course==='fixed'?(f.end_date||null):null}};
+}
+function captureReview(form){Object.assign(currentMed(),readReview(form,currentMed()),{ok:false});save();}
+
 function medicationReviewFields(m){
- const count=1+(m.extra_doses?.length||0),suggestion=!m.dose&&doseSuggestion(m);
- const rows=[m,m.extra_doses?.[0]||{},m.extra_doses?.[1]||{}].map((item,i)=>{
+ const count=1+(m.extra_doses?.length||0),suggestion=!m.dose&&doseSuggestion(m),r=m.regimen||regimen.blank();
+ const rows=[m,...Array.from({length:3},(_,i)=>m.extra_doses?.[i]||{})].map((item,i)=>{
   const names=i?['extraTime'+(i-1),'extraDose'+(i-1),'extraMeal'+(i-1)]:['time','dose','meal'];
   return '<fieldset class="dose-row" data-dose-row="'+i+'" '+(i>=count?'hidden disabled':'')+'><legend>第 '+(i+1)+' 次服用</legend><div class="fields">'+
    field(names[0],'服用时间',item.time||'','time')+field(names[1],'每次用量（含单位）',item.dose||'','text','如：1 粒')+
    field(names[2],'与吃饭的关系（选填）',item.meal||'','text',['如：早餐后','如：午餐后','如：晚餐后'][i])+'</div></fieldset>';
  }).join('');
- return field('name','药名',m.name)+'<label>每天服用几次<select id="doseCount">'+[1,2,3].map(n=>'<option value="'+n+'" '+(n===count?'selected':'')+'>'+n+' 次</option>').join('')+'</select></label>'+
+ return field('name','药名',m.name)+regimenFields(r)+'<label>服用当天几次<select id="doseCount">'+[1,2,3,4].map(n=>'<option value="'+n+'" '+(n===count?'selected':'')+'>'+n+' 次</option>').join('')+'</select></label>'+
   (suggestion?'<p>从'+suggestion.source+'读到 <strong>'+esc(suggestion.dose)+'</strong>。请核对大字卡要记录的每次用量。</p>'+
    b('use-dose-suggestion','采用 '+suggestion.dose):'')+
   rows+'<button type="button" data-a="copy-first-dose"'+(count===1?' hidden':'')+'>把第 1 次用量填到其余空白项</button>'+
@@ -217,7 +299,7 @@ function medicationReviewFields(m){
 function field(id,label,val,type='text',placeholder=''){return '<label>'+label+'<input id="f-'+id+'" name="'+id+'" type="'+type+'" value="'+esc(val)+'" placeholder="'+esc(placeholder)+'" maxlength="'+(id==='name'?40:80)+'" '+(type==='number'?'min="1" max="120"':'')+'></label>';}
 function medDoses(m){
  return [{dose:m.dose,time:m.time,meal:m.meal},...(m.extra_doses||[])].map(item=>({
-  ...item,name:m.name,food_notes:m.food_notes||''
+  ...item,name:m.name,food_notes:m.food_notes||'',...(m.regimen?{regimen:m.regimen,daily_count:1+(m.extra_doses?.length||0)}:{})
  }));
 }
 function cardPeriods(c){
@@ -234,12 +316,12 @@ function doseLabel(dose){
  return '每次用量：'+dose.replace(/(\d)(?=[片粒颗袋包丸滴支喷揿贴勺克毫微瓶枚锭a-zA-Z])/g,'$1 ');
 }
 const doseReviewSpeech='这张用药卡有用量缺少单位，请对照药袋或医嘱重新核对后再使用。';
-const fullNarration=c=>(c.demo?'这是示例用药卡。':'这是您核对的每日用药。')+ordered(c).map(m=>{const[h,min]=m.time.split(':').map(Number);return h+'点'+(min?min+'分':'整')+'，'+m.name+'，每次'+m.dose+'。'+(m.meal?m.meal+'。':'');}).join('');
+const fullNarration=c=>(c.demo?'这是示例用药卡。':'这是您核对的用药安排。')+ordered(c).map(m=>{const[h,min]=m.time.split(':').map(Number);return h+'点'+(min?min+'分':'整')+'，'+m.name+'，每次'+m.dose+'。'+(m.regimen?regimen.label(m)+'。':'')+(m.meal?m.meal+'。':'');}).join('');
 function narration(c){
  if(c.meds.some(m=>doseNeedsUnit(m.dose)))return doseReviewSpeech;
  const text=fullNarration(c);
  return text.length<=110?text+(c.meds.some(m=>m.food_notes)?'食物注意事项请看大字卡。':''):
-  (c.demo?'这是示例用药卡。':'这是您核对的每日用药。')+'具体吃法请按大字卡查看。';
+  (c.demo?'这是示例用药卡。':'这是您核对的用药安排。')+'请按大字卡上每种药的服用日期、频率、用量和时间使用。';
 }
 const exactDemo=c=>c.demo&&JSON.stringify(c.meds.map(({name,dose,time,meal})=>({name,dose,time,meal})))===JSON.stringify(sample);
 function cardDateLabel(c){return c.start_date?(c.end_date?c.start_date+' 至 '+c.end_date:c.start_date+' 起'):c.date;}
@@ -248,6 +330,7 @@ function cardResult(){const c=activeCard();if(!c)return home();
   cardPeriods(c).map(({label,meds},index)=>meds.length?'<section class="medication-period period-'+index+'"><h3>'+({早:'早上',中:'中午',晚:'晚上'})[label]+'</h3><div class="medication-entries">'+
    meds.map(m=>'<div class="medication-entry"><div class="medication-main"><strong class="medication-time">'+esc(m.time)+'</strong>'+
     '<div><h4>'+esc(m.name)+'</h4><p class="medication-dose'+(doseNeedsUnit(m.dose)?' dose-needs-unit':'')+'">'+esc(doseLabel(m.dose))+'</p>'+
+    (m.regimen?'<p class="medication-regimen">'+esc(regimen.label(m))+'</p>':'')+
     (m.meal?'<p class="medication-meal">'+esc(m.meal)+'</p>':'')+'</div></div>'+
     (m.food_notes?'<p>食物注意：'+esc(m.food_notes)+'</p>':'')+'</div>').join('')+
    '</div></section>':'').join('')+'<p class="medication-legal">'+legal+'</p></article>';
@@ -265,10 +348,10 @@ async function openMedicationToday(card){
   if(!panel.isConnected||account!==api.account)return;
   const taken=new Set(items.filter(i=>i.card_id===card.id&&i.day===day).map(i=>i.med_index));
   panel.innerHTML=(eligible?'':'<p>今天不在这张卡的服药周期内。</p>')+ordered(card).map(m=>{
-   const index=card.meds.indexOf(m),recorded=taken.has(index);
+   const index=card.meds.indexOf(m),recorded=taken.has(index),eligible=regimen.activeOn(m,day,card);
    return '<section class="report-card-entry"><h3>'+esc(m.time+' · '+m.name)+'</h3><p>'+esc(doseLabel(m.dose))+'</p>'+
     '<button type="button" data-med-index="'+index+'" aria-pressed="'+recorded+'" '+(!eligible&&!recorded?'disabled':'')+'>'+
-    (recorded?'已登记 · 撤销':'记录本次已服')+'</button></section>';
+    (recorded?'已登记 · 撤销':eligible?'记录本次已服':'今天未安排')+'</button></section>';
   }).join('');
   panel.onclick=async e=>{
    const button=e.target.closest('[data-med-index]');
@@ -280,7 +363,7 @@ async function openMedicationToday(card){
     button.textContent=taken?'已登记 · 撤销':'记录本次已服';
     button.setAttribute('aria-pressed',String(taken));
    }catch(err){toast(err.message);}
-   finally{button.disabled=!eligible&&button.getAttribute('aria-pressed')!=='true';}
+   finally{button.disabled=!regimen.activeOn(card.meds[Number(button.dataset.medIndex)],day,card)&&button.getAttribute('aria-pressed')!=='true';}
   };
  }catch(e){if(panel.isConnected)panel.textContent=e.message;}
 }
@@ -295,16 +378,16 @@ function dailyPlan(){
  const actions=week.cardId?b('speak-day','听这份安排','','audio')+b('open-'+week.cardId,'查看大字用药卡','','card'):b('scene-card','拍药盒做卡','primary','camera');
  return sceneShell('每日用药','<article class="card day-plan"><h2>'+esc(day.fullLabel)+'</h2>'+filters+rows+'</article><div class="buttons">'+actions+'</div>');
 }
-function readDailyPlan(){
- const {day,slots}=selectedPlan();
+function readDailyPlan(all=false){
+ const plan=selectedPlan(),day=plan.day,slots=all?day.slots:plan.slots;
  if(slots.some(s=>s.meds.some(m=>doseNeedsUnit(m.dose))))return speak(doseReviewSpeech);
- speak(day.fullLabel+'的用药安排。'+slots.map(s=>s.label+'。'+(s.meds.length?s.meds.map(m=>m.time+'，'+m.name+'，每次'+m.dose+'。'+(m.meal?m.meal+'。':'')).join(''):'这个时段未登记用药。')).join(''));
+ speak(day.fullLabel+'的用药安排。'+slots.map(s=>s.label+'。'+(s.meds.length?s.meds.map(m=>m.time+'，'+m.name+'，每次'+m.dose+'。'+(m.regimen?regimen.label(m)+'。':'')+(m.meal?m.meal+'。':'')+(m.food_notes?'须知：'+m.food_notes+'。':'')).join(''):'这个时段未登记用药。')).join(''));
 }
-function publishWeek(){return schedule.update(backendReady?state.cards:[],{ready:backendReady});}
+function publishWeek(){return schedule.update(backendReady?state.cards:[],{ready:backendReady,draft:backendReady?state.draft:null});}
 function drugScene(){const q=state.query.trim(),found=q?(api?.enabled?(state.remoteCatalog||[]):catalog.filter(c=>c[0].includes(q)).slice(0,12)):[];return sceneShell('查药品资料',bubble('把药盒上的药名告诉我，我帮您找目录里的规格和厂家。')+'<form id="searchForm" class="panel"><label>药品名称<input id="q" required value="'+esc(q)+'" placeholder="输入药名"></label><button class="primary">查药品</button></form>'+(q?'<div class="panel">'+(found.length?found.map(([n,s,m,url])=>'<section class="rowline"><h3>'+esc(n)+'</h3><p>'+esc(s)+' · '+esc(m)+'</p><a class="sourcelink" target="_blank" rel="noreferrer" href="'+esc(url)+'">查看目录来源</a></section>').join(''):'<p>目录中没有查到这个药名，请对照药盒核对全名。</p>')+'</div>':''));}
 const reportMeaning='箭头表示这一项高于或低于这张报告给出的参考范围。判断原因，还需要医生结合您的身体情况和其他检查一起看。';
 function reportScene(){if(api?.enabled)return liveReportScene();return sceneShell('看体检报告',bubble('您想先了解报告上的哪一项？')+'<div class="panel"><h2>报告里的箭头</h2>'+b('report-read','查看大白话解读','','report')+'</div>'+(state.note==='report'?'<article class="card"><h2>向上和向下是什么意思？</h2><p>'+reportMeaning+'</p><p>就诊时带上报告，请医生一起核对项目、单位和参考范围。</p><a class="sourcelink" href="https://medlineplus.gov/lab-tests/how-to-understand-your-lab-results/" target="_blank" rel="noreferrer">资料来源 · MedlinePlus</a><p class="legal">'+legal+'</p>'+b('speak-report','听解读','','audio')+'</article>':''));}
-function alarmScene(){const c=state.cards.find(x=>!x.demo);return sceneShell('设定时提醒',bubble(c?'这是您最近核对的用药卡。把提醒导入手机日历后，每天会按这些时间提醒。':'先做好并核对您自己的用药卡，再选时间设置提醒。')+'<section class="panel"><h2>每日用药提醒</h2>'+(c?ordered(c).map((m,i)=>field('alarm'+i,esc(m.name+'（'+m.time+'）'),api?.reminders.find(r=>r.card_id===c.id&&r.med_index===c.meds.indexOf(m))?.at||m.time,'time')).join('')+b('export-alarm',api?.enabled?'保存提醒并导出日历':'导出日历提醒','primary','bell'):b('scene-card','做用药卡','primary','card'))+(api?.enabled?b('reminder-voice-preview','试听提醒语音','','audio'):'')+'</section>');}
+function alarmScene(){const c=state.cards.find(x=>!x.demo);return sceneShell('设定时提醒',bubble(c?'提醒会按每种药已核对的频率和使用期限安排。':'先做好并核对您自己的用药卡，再选时间设置提醒。')+'<section class="panel"><h2>用药提醒</h2>'+(c?ordered(c).map((m,i)=>(m.regimen?'<p>'+esc(regimen.label(m))+'</p>':'')+field('alarm'+i,esc(m.name+'（'+m.time+'）'),api?.reminders.find(r=>r.card_id===c.id&&r.med_index===c.meds.indexOf(m))?.at||m.time,'time')).join('')+b('export-alarm',api?.enabled?'保存提醒并导出日历':'导出日历提醒','primary','bell'):b('scene-card','做用药卡','primary','card'))+(api?.enabled?b('reminder-voice-preview','试听提醒语音','','audio'):'')+'</section>');}
 async function searchInChat(query,utterance=query) {
   if(api?.enabled){try{state.query=query.trim();if(!state.query)return;const r=await api.raw('/catalog?q='+encodeURIComponent(state.query));state.remoteCatalog=r.items.map(m=>[m.name,m.spec,m.maker,m.evidence.url]);logMessage('user',utterance);logMessage('assistant','目录中找到 '+r.total+' 条记录，请核对厂家与规格。');goto('chat','drug');}catch(e){toast(e.message);}return;}
   state.query=query.trim();if(!state.query)return;
@@ -321,6 +404,7 @@ function textReply(text,reply) {
   if(last.getBoundingClientRect().top<pane.getBoundingClientRect().top)pane.scrollTop+=last.getBoundingClientRect().top-pane.getBoundingClientRect().top-10;
 }
 function answerChat(text) {
+  if(api?.enabled&&state.scene==='card'&&state.draft&&['photos','review'].includes(state.draft.phase))return medicationTurn('message',text);
   if(api?.enabled)return liveMessage(text);
   const p=state.profile;
   if(/我的.*(忌口|过敏|年龄|健康状况|画像)/.test(text)) {
@@ -349,10 +433,10 @@ function answerChat(text) {
   if(state.scene==='card'&&state.draft?.phase==='review')return textReply(text,'我们正在核对第 '+(state.draft.index+1)+' 盒药。请对着原图和医嘱逐项填写，拿不准可以点“稍后再核对”。');
   return textReply(text,'这条我还不能准确解答。我可以帮您查药品目录、解释报告上的箭头，或把您已核对的吃法整理成卡。您想先做哪件事？');
 }
-function render(){publishWeek();const handlers={home,card:cardTask,result:cardResult,report:reportScene,drug:drugScene,alarm:alarmScene,schedule:dailyPlan};$('nav').innerHTML=Object.entries(tabs).map(([k,[label,icon]])=>'<button data-a="nav-'+k+'" '+(workspaceOpen&&tab===k?'aria-current="page"':'')+'>'+ico(icon)+label+'</button>').join('');$('pageTitle').textContent=tabs[tab][2];$('date').textContent=dateFmt(new Date());$('view').innerHTML=tab==='tools'?toolsPage():tab==='me'?profile():'<div class="grid conversation">'+transcript()+(pdfWork?pdfWorkView():(networkStatus?'<p role="status">'+esc(networkStatus)+'</p>':''))+(handlers[state.scene]||home)()+'</div>';
-const dock=$('composeDock');dock.hidden=tab!=='chat';if(!dock.firstChild)dock.innerHTML=composer();dock.querySelectorAll('button,input').forEach(e=>e.disabled=networkBusy||!backendReady);}
+function render(){publishWeek();const handlers={home,card:cardTask,result:cardResult,report:reportScene,drug:drugScene,alarm:alarmScene,schedule:dailyPlan};$('nav').innerHTML=Object.entries(tabs).map(([k,[label,icon]])=>'<button data-a="nav-'+k+'" '+(workspaceOpen&&tab===k?'aria-current="page"':'')+'>'+ico(icon)+label+'</button>').join('');$('pageTitle').textContent=tabs[tab][2];$('date').textContent=dateFmt(new Date());renderChatTabs();$('view').innerHTML=tab==='me'?profile():'<div class="grid conversation">'+(state.scene==='card'&&state.draft?.phase==='review'&&api?.enabled&&medicationEntryMode==='conversation'?'':transcript())+(pdfWork?pdfWorkView():(networkStatus&&!(state.scene==='card'&&state.draft?.phase==='review'&&medicationEntryMode==='conversation')?'<p role="status">'+esc(networkStatus)+'</p>':''))+(handlers[state.scene]||home)()+'</div>';
+const dock=$('composeDock');dock.hidden=tab!=='chat';if(!dock.firstChild)dock.innerHTML=composer();$('utterance').maxLength=state.scene==='card'?1200:160;$('utterance').placeholder=state.scene==='card'&&state.draft?.phase==='review'?'直接说这盒药的吃法':'跟安伴说说您的问题';dock.querySelectorAll('button,input').forEach(e=>e.disabled=networkBusy||!backendReady);}
 function update(){save();render();if(tab==='chat'&&state.scene!=='home')positionChat();animateSheet();}
-function validate(m){if(!m.name.trim()||!m.dose.trim()||!/^\d{2}:\d{2}$/.test(m.time))return '请按医嘱核对药名、每次用量和每日时间。';if(doseNeedsUnit(m.dose))return '请填写每次用量及单位，例如 2 粒、1 片或 5 mL。';if(/不清楚|忘了|不知道|不确定|记不清|可能|好像|隔天|每周|按需/.test(m.name+m.dose+m.meal+(m.food_notes||'')))return '这份药的每日吃法还不能确定，请先保存进度，再核对医嘱。';return '';}
+function validate(m){if(!m.name.trim()||!m.dose.trim()||!/^([01]\d|2[0-3]):[0-5]\d$/.test(m.time))return '请按医嘱核对药名、每次用量和每日时间。';if(/隔天|隔日|每周/.test(m.dose+m.meal)&&!['interval','weekly'].includes(m.regimen?.frequency))return '请在服用频率中核对间隔天数或每周日期。';if(doseNeedsUnit(m.dose))return '请填写每次用量及单位，例如 2 粒、1 片或 5 mL。';if(/不清楚|忘了|不知道|不确定|记不清|可能|好像|按需/.test(m.name+m.dose+m.meal+(m.food_notes||'')))return '这份药的每日吃法还不能确定，请先保存进度，再核对医嘱。';return '';}
 function openCard(id){state.activeId=id;goto('chat','result');}
 async function emitCard(cycle){if(api?.enabled)return liveGenerate(cycle);const d=state.draft;if(!d||d.phase!=='summary'||d.meds.some(m=>!m.ok||validate(m)))return;
  const c={id:globalThis.crypto?.randomUUID?.()||'c'+Date.now(),date:new Date().toLocaleDateString('zh-CN'),person:state.profile.name,demo:d.demo,meds:d.meds.flatMap(medDoses),...cycle};state.cards.unshift(c);state.draft=null;logMessage('assistant','已把这 '+d.meds.length+' 盒药整理成大字卡，您可以随时打开并听语音。',c.id);openCard(c.id);}
@@ -398,6 +482,7 @@ function drawCard(c){
    text(m.time,190,y,52,accent,212,true);
    const nameEnd=text(m.name,410,y+2,52,ink,462,true);
    y=Math.max(y+66,text(doseLabel(m.dose),410,nameEnd+3,45,doseNeedsUnit(m.dose)?'#8a441e':'#143e43',462,true));
+   if(m.regimen)y=text(regimen.label(m),190,y+7,38,ink,686);
    if(m.meal)y=text(m.meal,190,y+7,38,ink,686);
    if(m.food_notes)y=text('食物注意：'+m.food_notes,190,y+6,35,ink,686);
    y+=12;
@@ -414,37 +499,26 @@ function drawCard(c){
 }
 async function savePNG(){if(api?.enabled){try{const c=activeCard(),url='/api/v1/cards/'+c.id+'/image.png';const blob=await api.raw('/cards/'+c.id+'/image.png');download(blob,titleCard(c)+'.png');showModal('<h2>用药卡图片</h2><img alt="每日用药卡" style="width:100%" src="'+url+'">');}catch(e){toast(e.message);}return;}const cn=drawCard(activeCard());cn.toBlob(blob=>{if(!blob){toast('图片生成失败，请再试一次。');return;}download(blob,titleCard(activeCard())+'.png');const img=new Image();img.src=cn.toDataURL();img.alt='可长按保存的每日用药卡';img.style.width='100%';showModal('<h2>用药卡图片</h2><p>手机可长按图片保存。</p>');$('modalContent').append(img);});}
 async function calendar(){if(api?.enabled)return liveCalendar();const c=state.cards.find(x=>!x.demo);if(!c)return;const rows=ordered(c).map((m,i)=>({...m,at:$('f-alarm'+i).value}));if(rows.some(x=>!x.at))return toast('请先选好每项提醒的时间。');const stamp=new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');const lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Anban//Calendar//ZH-CN'];
- rows.forEach((m,i)=>{const now=new Date(),when=new Date(),[h,min]=m.at.split(':').map(Number);when.setHours(h,min,0,0);if(when<now)when.setDate(when.getDate()+1);const date=[when.getFullYear(),String(when.getMonth()+1).padStart(2,'0'),String(when.getDate()).padStart(2,'0')].join('');lines.push('BEGIN:VEVENT','UID:'+c.id+'-'+i+'@anban.local','DTSTAMP:'+stamp,'DTSTART:'+date+'T'+m.at.replace(':','')+'00','DURATION:PT1M','RRULE:FREQ=DAILY','SUMMARY:查看安伴用药卡','BEGIN:VALARM','ACTION:DISPLAY','TRIGGER:PT0M','DESCRIPTION:查看已核对的用药卡','END:VALARM','END:VEVENT');});lines.push('END:VCALENDAR');download(new Blob([lines.join('\r\n')+'\r\n'],{type:'text/calendar'}),'安伴每日提醒.ics');state.reminder=c.id;save();showModal('<h2>日历文件已生成</h2><p>打开文件，加入手机日历并开启日历通知。改药或停药时，请同步修改日历里的旧提醒。</p>');}
+ rows.forEach((m,i)=>{const when=regimen.nextOccurrence(m,c,m.at);if(!when)return;lines.push('BEGIN:VEVENT','UID:'+c.id+'-'+i+'@anban.local','DTSTAMP:'+stamp,'DTSTART;TZID=Asia/Shanghai:'+when,'DURATION:PT1M','RRULE:'+regimen.recurrenceRule(m,c),'SUMMARY:查看安伴用药卡','BEGIN:VALARM','ACTION:DISPLAY','TRIGGER:PT0M','DESCRIPTION:查看已核对的用药卡','END:VALARM','END:VEVENT');});lines.push('END:VCALENDAR');download(new Blob([lines.join('\r\n')+'\r\n'],{type:'text/calendar'}),'安伴每日提醒.ics');state.reminder=c.id;save();showModal('<h2>日历文件已生成</h2><p>打开文件，加入手机日历并开启日历通知。改药或停药时，请同步修改日历里的旧提醒。</p>');}
 async function readPhoto(file){if(file.size>25*1024*1024)throw Error('照片超过 25 MB，请换一张。');const url=URL.createObjectURL(file);try{const img=new Image();img.src=url;await img.decode();const scale=Math.min(1,1400/Math.max(img.width,img.height)),cn=document.createElement('canvas');cn.width=Math.max(1,Math.round(img.width*scale));cn.height=Math.max(1,Math.round(img.height*scale));const g=cn.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,cn.width,cn.height);g.drawImage(img,0,0,cn.width,cn.height);return cn.toDataURL('image/jpeg',.77);}finally{URL.revokeObjectURL(url);}}
 for(const id of ['album','camera']) $(id).onchange=async e=>{const files=[...e.target.files];e.target.value='';const d=state.draft;const medicationId=supplementMedicationId;supplementMedicationId='';if(!files.length||picturePending||!d||d.demo)return;if(api?.enabled)return livePhotos(files,d,medicationId);if(files.length+d.meds.length>5)return toast('一次最多整理五盒药，请减少所选照片。');picturePending=true;try{const photos=[];for(const f of files)photos.push(await readPhoto(f));if(state.draft===d&&d.phase==='photos'){d.meds.push(...photos.map(photo=>({...blankMed(),photo,ok:false})));logMessage('user','添加了 '+photos.length+' 张药盒照片。');update();}}catch(err){toast(err.message.includes('25 MB')?err.message:'照片打不开，请选 JPG、PNG 或换一张照片。');}finally{picturePending=false;}};
-document.addEventListener('input',e=>{if(e.target.closest('#reviewForm')){const m=currentMed();m[e.target.name]=e.target.value;m.ok=false;save();}});
+document.addEventListener('input',e=>{if(e.target.closest('#reviewForm'))captureReview(e.target.form);});
 document.addEventListener('change',e=>{
- if(e.target.id!=='doseCount')return;
- const form=e.target.form,count=Number(e.target.value);
- for(const row of form.querySelectorAll('[data-dose-row]')){
-  row.hidden=row.disabled=Number(row.dataset.doseRow)>=count;
- }
+ if(!e.target.closest('#reviewForm'))return;
+ const form=e.target.form,count=Number($('doseCount').value);
+ for(const row of form.querySelectorAll('[data-dose-row]'))row.hidden=row.disabled=Number(row.dataset.doseRow)>=count;
  form.querySelector('[data-a="copy-first-dose"]').hidden=count===1;
+ syncRegimenFields();captureReview(form);
 });
 document.addEventListener('submit',async e=>{e.preventDefault();if(api?.enabled&&!backendReady)return toast('正在连接本机服务。');if(e.target.id==='accountForm')return liveAccount(e.target);switch(e.target.id){
-case 'cardCycleForm':{
- const {start_date,end_date}=Object.fromEntries(new FormData(e.target));
- if(!start_date)return toast('请选择服药开始日期。');
- if(end_date&&end_date<start_date)return toast('结束日期不能早于开始日期。');
- await emitCard({start_date,end_date:end_date||null});
- break;
-}
+case 'cardCycleForm':await emitCard({});break;
  case 'reportIndicators':submitReportIndicators(e.target);break;
 case 'reviewForm':{
  if(networkBusy)return;
  const d=state.draft,m=currentMed(),oldIndex=d.index,oldPhase=d.phase;
- const form=Object.fromEntries(new FormData(e.target));
- const extra_doses=Array.from({length:Number($('doseCount').value)-1},(_,i)=>({
-  time:form['extraTime'+i]||'',dose:form['extraDose'+i]||'',meal:form['extraMeal'+i]||''
- }));
- const updated={...m,name:form.name,dose:form.dose,time:form.time,meal:form.meal,food_notes:form.food_notes,extra_doses};
+ const updated=readReview(e.target,m);
  const administrations=medDoses(updated);
- const problem=administrations.map(validate).find(Boolean)||
+ const problem=regimen.validate(updated.regimen)||administrations.map(validate).find(Boolean)||
   (new Set(administrations.map(item=>item.time)).size!==administrations.length?'同一盒药的服用时间不能重复。':'');
  if(problem){$('reviewError').hidden=false;$('reviewError').textContent=problem;return;}
  Object.assign(m,updated,{ok:true});
@@ -453,7 +527,7 @@ case 'reviewForm':{
   networkBusy=true;const submit=e.target.querySelector('.primary');submit.disabled=true;submit.textContent='正在保存…';
   try{await api.flushDraft(d);}catch(err){m.ok=false;d.index=oldIndex;d.phase=oldPhase;$('reviewError').hidden=false;$('reviewError').textContent=err.message;submit.disabled=false;submit.textContent='重新确认这盒';return;}finally{networkBusy=false;}
  }
- logMessage('user','已核对第 '+(oldIndex+1)+' 盒：'+m.name+'，'+m.time+'，每次 '+m.dose+(m.meal?'，'+m.meal:'')+'。');
+ logMessage('user','已核对第 '+(oldIndex+1)+' 盒：'+m.name+'，'+regimen.label(m)+'；'+medDoses(m).map(x=>x.time+' 每次 '+x.dose).join('，')+'。');
  update();positionChat();break;
 }
 case 'profileForm':{const data=Object.fromEntries(new FormData(e.target));try{state.profile=api?.enabled?await api.raw('/profile','PUT',data):data;$('modal').close();update();}catch(err){toast(err.message);}break;}
@@ -472,6 +546,12 @@ document.addEventListener('click',async e=>{const target=e.target.closest('[data
  if(a.startsWith('period-')){const period=a.slice(7);schedule.select(schedule.getSnapshot().selection.date,period==='all'?null:period);stopVoice();render();positionChat();return;}
  if(api?.enabled&&a==='report-upload'){$('reportAlbum').click();return;}
  if(api?.enabled&&await liveAction(a))return;
+ if(a==='dialogue-start')return medicationTurn('start');
+ if(a==='dialogue-add')return medicationTurn('start','',true);
+ if(a==='dialogue-confirm')return medicationTurn('confirm');
+ if(a==='dialogue-manual'){medicationEntryMode='manual';render();positionChat();return;}
+ if(a.startsWith('dialogue-choice-')){const text=currentMed()?.dialogue?.choices?.[Number(a.slice('dialogue-choice-'.length))];if(text)return medicationTurn('message',text);return;}
+ if(a.startsWith('chat-tab-'))return switchChatTab(a.slice(9));
  if(a==='resume-card')return start('card',prompts.card,true);
  if(a.startsWith('nav-'))return goto(a.slice(4));if(a.startsWith('scene-'))return start(a.slice(6));if(a.startsWith('open-')){$('modal').close();return openCard(a.slice(5));}
  if(a.startsWith('remove-')){d.meds.splice(Number(a.slice(7)),1);if(d.demo){d.meds=[];d.demo=false;}update();return;}
@@ -493,12 +573,12 @@ document.addEventListener('click',async e=>{const target=e.target.closest('[data
   break;
  case 'real-photos':try{state.draft=api?.enabled?await api.createDraft():blankDraft();update();}catch(err){toast(err.message);}break;
  case 'demo':if(api?.enabled){try{state.draft=await api.createDraft(true);update();}catch(err){toast(err.message);}break;}logMessage('user','用两盒示例药来体验。');d.demo=true;d.meds=sample.map((m,i)=>({...m,exampleIndex:i,ok:false}));update();break;
- case 'review-start':if(picturePending)return toast('照片正在准备中。');if(!d.meds.length)return toast('请先添加一种药。');d.phase='review';d.index=0;update();break;
+ case 'review-start':if(picturePending)return toast('照片正在准备中。');if(!d.meds.length)return toast('请先添加一种药。');d.index=0;if(api?.enabled)return medicationTurn('start');d.phase='review';update();break;
  case 'review-prev':if(d.index)d.index--;else d.phase='photos';update();break;
  case 'later':if(api?.enabled){try{await api.flushDraft(d);}catch(err){toast(err.message);break;}}logMessage('assistant','这份用药卡已存为草稿，下次可以继续核对。');goto('chat','home');toast('已保存核对进度。');break;
  case 'use-dose-suggestion':{
   const suggestion=doseSuggestion(currentMed()),dose=$('f-dose');
-  if(suggestion&&dose&&!dose.value.trim())dose.value=suggestion.dose;
+  if(suggestion&&dose&&!dose.value.trim()){dose.value=suggestion.dose;dose.dispatchEvent(new Event('input',{bubbles:true}));}
   dose?.focus();break;
  }
  case 'copy-first-dose':{
@@ -506,7 +586,7 @@ document.addEventListener('click',async e=>{const target=e.target.closest('[data
   if(!dose)return toast('请先填写第 1 次的用量。');
   for(let i=0;i<Number($('doseCount').value)-1;i++){
    const input=$('f-extraDose'+i);
-   if(!input.value.trim())input.value=dose;
+   if(!input.value.trim()){input.value=dose;input.dispatchEvent(new Event('input',{bubbles:true}));}
   }
   break;
  }
@@ -524,6 +604,7 @@ document.addEventListener('click',async e=>{const target=e.target.closest('[data
 let workspaceOpen=false;
 let lastWorkspaceFocus=null;
 function openWorkspace(){
+  window.AnbanDayPanel.close(false);
   if(!workspaceOpen)lastWorkspaceFocus=document.activeElement;
   workspaceOpen=true;
   $('workspace').inert=false;
@@ -556,8 +637,10 @@ window.addEventListener('anban:open-day',e=>{
   if(!backendReady)return toast('正在读取用药，请稍等。');
   publishWeek();
   if(!schedule.select(e.detail.date,e.detail.period??null))return;
-  goto('chat','schedule');
+  window.AnbanDayPanel.open();
 });
+window.addEventListener('anban:read-day',()=>readDailyPlan(true));
+window.addEventListener('anban:stop-day-voice',stopVoice);
 // Roll the date while open, and immediately after returning from a sleeping tab.
 function refreshDay(){if(publishWeek()&&state.scene==='schedule')render();}
 setInterval(refreshDay,30000);
@@ -627,7 +710,7 @@ async function liveCalendar(){
  const c=state.cards.find(x=>!x.demo);if(!c)return;
  const meds=ordered(c),times=meds.map((m,i)=>$('f-alarm'+i).value);
  if(times.some(t=>!t))return toast('请先选好提醒时间。');
- try{await api.setReminders(c,c.meds.map(m=>times[meds.indexOf(m)]));state.reminder=c.id;save();const blob=await api.raw('/reminders/calendar.ics');download(blob,'安伴每日提醒.ics');showModal('<h2>提醒已保存</h2><p>正在后台准备每次用药的提醒语音，可以稍后试听。</p><p>安伴打开时会弹出提醒。关闭安伴后，可通过导入的手机日历接收提醒。</p>');}
+ try{await api.setReminders(c,c.meds.map(m=>times[meds.indexOf(m)]));state.reminder=api.reminders.some(r=>r.enabled)?c.id:null;save();const blob=await api.raw('/reminders/calendar.ics');download(blob,'安伴每日提醒.ics');showModal('<h2>提醒已保存</h2><p>正在后台准备每次用药的提醒语音，可以稍后试听。</p><p>安伴打开时会弹出提醒。关闭安伴后，可通过导入的手机日历接收提醒。</p>');}
  catch(e){toast(e.message);}
 }
 function liveReportScene(){
@@ -735,3 +818,15 @@ if(api?.enabled){
  setInterval(checkReminders,15000);
  api.ready.then(checkReminders,()=>{});
 }
+
+window.addEventListener('anban:open-medicine-note',()=>{
+ const {inventory,week,selection}=schedule.getSnapshot();
+ const labels={confirmed:'已加入用药卡',reviewed:'已核对 · 待制卡',pending:'待核对'};
+ const selected=week.days.find(d=>d.date===selection.date),visual=window.AnbanVisuals.pills(selected.slots.flatMap(s=>s.meds));
+ showModal('<section class="medicine-note-detail"><h2>我的药品清单</h2>'+
+  (inventory.length?'<ul>'+inventory.map(m=>'<li><strong>'+esc(m.name)+'</strong><span>'+labels[m.status]+'</span></li>').join('')+'</ul>':'<p>还没有录入药品</p>')+
+  '<p>药丸外观为示意，实际服用请看已核对的用药卡。</p>'+
+  (visual.overflow?'<p>药格中的示意有数量上限，完整用量请查看用药卡。</p>':'')+
+  '<button type="button" class="primary" id="noteContinue">'+(state.draft?.meds.length?'继续核对药盒':'登记药品')+'</button></section>');
+ document.getElementById('noteContinue').onclick=()=>{$('modal').close();start('card',prompts.card,!!state.draft?.meds.length);};
+});

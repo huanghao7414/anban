@@ -52,3 +52,10 @@ test('loading and logout clear medicines and notify both renderers',()=>{
  assert.equal(calls.length,4);assert.equal(store.getSnapshot().ready,false);assert.equal(store.getSnapshot().week.cardId,null);
  assert(store.getSnapshot().week.days.every(d=>d.slots.every(s=>s.meds.length===0)));off();store.update([card],{now});assert.equal(calls.length,4);
 });
+test('daily slots retain confirmed food notices without creating advice',()=>{
+ const recorded={...med('08:00'),food_notes:'按已核对的药袋注明，避免同服指定食物'};
+ const w=buildWeek([{...card,meds:[recorded,med('18:30')]}],now);
+ assert.equal(w.days[0].slots[0].meds[0].food_notes,recorded.food_notes);
+ assert.equal(w.days[0].slots[2].meds[0].food_notes,undefined);
+ assert.equal(recorded.food_notes,'按已核对的药袋注明，避免同服指定食物');
+});

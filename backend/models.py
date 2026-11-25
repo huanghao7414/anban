@@ -66,13 +66,30 @@ class MedicationDose(Model):
     meal: str = Field(default="", max_length=80)
 
 
+class MedicationRegimen(Model):
+    frequency: Literal["unknown", "daily", "interval", "weekly"] = "unknown"
+    interval_days: int = Field(default=2, ge=2, le=30)
+    weekdays: list[int] = Field(default_factory=list, max_length=7)
+    course: Literal["unknown", "fixed", "long_term"] = "unknown"
+    start_date: date | None = None
+    end_date: date | None = None
+
+    @field_validator("weekdays")
+    @classmethod
+    def valid_weekdays(cls, values):
+        if any(day < 1 or day > 7 for day in values):
+            raise ValueError("星期须为 1 至 7")
+        return sorted(set(values))
+
+
 class Medication(Model):
     id: str = Field(max_length=64)
     name: str = Field(default="", max_length=80)
     dose: str = Field(default="", max_length=40)
     time: str = Field(default="", max_length=5)
     meal: str = Field(default="", max_length=80)
-    extra_doses: list[MedicationDose] = Field(default_factory=list, max_length=2)
+    extra_doses: list[MedicationDose] = Field(default_factory=list, max_length=3)
+    regimen: MedicationRegimen | None = None
     food_notes: str = Field(default="", max_length=120)
     ok: bool = Field(default=False, strict=True)
 
@@ -99,7 +116,7 @@ class CardCreate(Model):
 
 class ReminderCreate(Model):
     card_id: str
-    times: list[str] = Field(min_length=1, max_length=15)
+    times: list[str] = Field(min_length=1, max_length=20)
     timezone: str = "Asia/Shanghai"
 
     @field_validator("times")
